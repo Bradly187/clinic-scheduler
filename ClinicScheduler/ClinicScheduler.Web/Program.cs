@@ -166,7 +166,13 @@ try
 
     // Add services to the container.
     builder.Services.AddRazorComponents()
-        .AddInteractiveServerComponents()
+        .AddInteractiveServerComponents(options =>
+        {
+            // Detailed errors only in development — never expose stack traces in production
+            options.DetailedErrors = builder.Environment.IsDevelopment();
+            // Keep circuits alive longer to avoid disconnects during normal use
+            options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(10);
+        })
         .AddInteractiveWebAssemblyComponents();
 
     builder.Services.AddMudServices();
