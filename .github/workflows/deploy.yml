@@ -3,6 +3,8 @@ name: Build, Test & Deploy
 on:
   push:
     branches: [MVP]
+  pull_request:
+    branches: [MVP]
 
 jobs:
   build-and-test:
@@ -38,7 +40,7 @@ jobs:
   deploy:
     needs: build-and-test
     runs-on: ubuntu-latest
-    if: github.repository == 'Bradly187/clinic-scheduler'
+    if: github.event_name == 'push' && github.repository == 'Bradly187/clinic-scheduler'
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
