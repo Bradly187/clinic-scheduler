@@ -1,0 +1,117 @@
+@page "/login-2fa"
+@attribute [AllowAnonymous]
+@inject NavigationManager Nav
+
+<PageTitle>Two-Factor Authentication</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-16">
+    <MudPaper Class="pa-8" Elevation="4">
+        <div class="d-flex align-center mb-6 gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.Security" Color="Color.Primary" Size="Size.Large" />
+            <MudText Typo="Typo.h5">Two-Factor Authentication</MudText>
+        </div>
+
+        @if (_errorMessage is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-4">@_errorMessage</MudAlert>
+        }
+
+        @if (!_useRecoveryCode)
+        {
+            <MudText Typo="Typo.body2" Class="mb-5" Style="color:#666;">
+                Open your authenticator app and enter the 6-digit code for this account.
+            </MudText>
+
+            <form method="post" action="/account/login-2fa">
+                <AntiforgeryToken />
+                <input type="hidden" name="returnUrl" value="@(ReturnUrl ?? "/")" />
+
+                <MudTextField @bind-Value="_code"
+                              Label="Authenticator Code"
+                              Placeholder="000000"
+                              InputType="InputType.Text"
+                              Variant="Variant.Outlined"
+                              Class="mb-5"
+                              MaxLength="7"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Pin" />
+
+                <input type="hidden" name="code" value="@_code" />
+
+                <MudButton ButtonType="ButtonType.Submit"
+                           Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           FullWidth="true"
+                           Size="Size.Large">
+                    Verify
+                </MudButton>
+            </form>
+
+            <MudText Typo="Typo.body2" Align="Align.Center" Class="mt-4">
+                Can't access your app?
+                <MudLink OnClick="@(() => _useRecoveryCode = true)" Style="cursor:pointer;">
+                    Use a recovery code
+                </MudLink>
+            </MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-5" Style="color:#666;">
+                Enter one of your recovery codes. Each code can only be used once.
+            </MudText>
+
+            <form method="post" action="/account/login-recovery">
+                <AntiforgeryToken />
+                <input type="hidden" name="returnUrl" value="@(ReturnUrl ?? "/")" />
+
+                <MudTextField @bind-Value="_recoveryCode"
+                              Label="Recovery Code"
+                              Placeholder="xxxxx-xxxxx"
+                              Variant="Variant.Outlined"
+                              Class="mb-5"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Key" />
+
+                <input type="hidden" name="recoveryCode" value="@_recoveryCode" />
+
+                <MudButton ButtonType="ButtonType.Submit"
+                           Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           FullWidth="true"
+                           Size="Size.Large">
+                    Verify Recovery Code
+                </MudButton>
+            </form>
+
+            <MudText Typo="Typo.body2" Align="Align.Center" Class="mt-4">
+                <MudLink OnClick="@(() => _useRecoveryCode = false)" Style="cursor:pointer;">
+                    Use authenticator app instead
+                </MudLink>
+            </MudText>
+        }
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string _code = "";
+    private string _recoveryCode = "";
+    private string? _errorMessage;
+    private bool _useRecoveryCode;
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    private string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")]
+    private string? Error { get; set; }
+
+    protected override void OnInitialized()
+    {
+        _errorMessage = Error switch
+        {
+            "1" => "Invalid authenticator code. Please try again.",
+            "2" => "Account locked due to too many failed attempts.",
+            "3" => "Invalid recovery code.",
+            _ => null
+        };
+    }
+}

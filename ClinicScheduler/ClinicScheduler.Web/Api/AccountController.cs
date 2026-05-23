@@ -23,10 +23,47 @@ public class AccountController(SignInManager<AppUser> signInManager) : Controlle
         if (result.Succeeded)
             return Url.IsLocalUrl(returnUrl) ? Redirect(returnUrl) : Redirect("/");
 
+        if (result.RequiresTwoFactor)
+            return Redirect($"/login-2fa?returnUrl={Uri.EscapeDataString(returnUrl ?? "/")}");
+
         if (result.IsLockedOut)
             return Redirect($"/login?error=2&returnUrl={Uri.EscapeDataString(returnUrl ?? "/")}");
 
         return Redirect($"/login?error=1&returnUrl={Uri.EscapeDataString(returnUrl ?? "/")}");
+    }
+
+    /// <summary>Completes sign-in using a TOTP authenticator code.</summary>
+    [HttpPost("login-2fa")]
+    public async Task<IActionResult> LoginWithTwoFactor(
+        [FromForm] string code,
+        [FromForm] string? returnUrl)
+    {
+        var cleanCode = code.Replace(" ", "").Replace("-", "");
+        var result = await signInManager.TwoFactorAuthenticatorSignInAsync(
+            cleanCode, isPersistent: false, rememberClient: false);
+
+        if (result.Succeeded)
+            return Url.IsLocalUrl(returnUrl) ? Redirect(returnUrl) : Redirect("/");
+
+        if (result.IsLockedOut)
+            return Redirect($"/login-2fa?error=2&returnUrl={Uri.EscapeDataString(returnUrl ?? "/")}");
+
+        return Redirect($"/login-2fa?error=1&returnUrl={Uri.EscapeDataString(returnUrl ?? "/")}");
+    }
+
+    /// <summary>Completes sign-in using a single-use recovery code.</summary>
+    [HttpPost("login-recovery")]
+    public async Task<IActionResult> LoginWithRecoveryCode(
+        [FromForm] string recoveryCode,
+        [FromForm] string? returnUrl)
+    {
+        var result = await signInManager.TwoFactorRecoveryCodeSignInAsync(
+            recoveryCode.Replace(" ", ""));
+
+        if (result.Succeeded)
+            return Url.IsLocalUrl(returnUrl) ? Redirect(returnUrl) : Redirect("/");
+
+        return Redirect($"/login-2fa?error=3&returnUrl={Uri.EscapeDataString(returnUrl ?? "/")}");
     }
 
     /// <summary>Signs the current user out and redirects to the login page.</summary>

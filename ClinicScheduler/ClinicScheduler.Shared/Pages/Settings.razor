@@ -1,0 +1,207 @@
+@page "/settings"
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Identity
+@inject UserManager<AppUser> UserManager
+@inject AuthenticationStateProvider AuthState
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>Account Settings</PageTitle>
+
+<MudGrid Justify="Justify.Center" Class="mt-6">
+    <MudItem xs="12" sm="10" md="7" lg="5">
+
+        @* ── Two-Factor Authentication ── *@
+        <MudPaper Elevation="2" Class="pa-6 mb-4">
+            <div class="d-flex align-center mb-4 gap-2">
+                <MudIcon Icon="@Icons.Material.Filled.Security" Color="Color.Primary" />
+                <MudText Typo="Typo.h6">Two-Factor Authentication</MudText>
+            </div>
+
+            @if (_mfaEnabled)
+            {
+                <MudAlert Severity="Severity.Success" Class="mb-4">
+                    MFA is <strong>enabled</strong> on your account.
+                </MudAlert>
+
+                @if (_showDisableConfirm)
+                {
+                    <MudText Typo="Typo.body2" Class="mb-3" Style="color:#666;">
+                        Enter your authenticator code to disable MFA.
+                    </MudText>
+
+                    @if (_disableError is not null)
+                    {
+                        <MudAlert Severity="Severity.Error" Class="mb-3">@_disableError</MudAlert>
+                    }
+
+                    <MudTextField @bind-Value="_disableCode"
+                                  Label="Authenticator Code"
+                                  Placeholder="000000"
+                                  Variant="Variant.Outlined"
+                                  MaxLength="6"
+                                  Class="mb-3" />
+
+                    <div class="d-flex gap-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Error"
+                                   OnClick="DisableMfaAsync" Disabled="_saving">
+                            @(_saving ? "Disabling…" : "Confirm Disable")
+                        </MudButton>
+                        <MudButton Variant="Variant.Text"
+                                   OnClick="@(() => { _showDisableConfirm = false; _disableError = null; })">
+                            Cancel
+                        </MudButton>
+                    </div>
+                }
+                else
+                {
+                    <div class="d-flex gap-2 flex-wrap">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error"
+                                   StartIcon="@Icons.Material.Filled.LockOpen"
+                                   OnClick="@(() => _showDisableConfirm = true)">
+                            Disable MFA
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined"
+                                   StartIcon="@Icons.Material.Filled.Refresh"
+                                   OnClick="RegenerateRecoveryCodesAsync" Disabled="_saving">
+                            @(_saving ? "Regenerating…" : "New Recovery Codes")
+                        </MudButton>
+                    </div>
+                }
+
+                @if (_newRecoveryCodes.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Class="mt-4">
+                        <strong>Save these new recovery codes — they replace your old ones.</strong>
+                    </MudAlert>
+                    <MudPaper Outlined="true" Class="pa-4 mt-2" Style="background:#f8f9fa;">
+                        <MudGrid Spacing="1">
+                            @foreach (var recoveryCode in _newRecoveryCodes)
+                            {
+                                <MudItem xs="6">
+                                    <MudText Style="font-family:monospace;font-size:0.9rem;letter-spacing:0.1em;">
+                                        @recoveryCode
+                                    </MudText>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    </MudPaper>
+                }
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Warning" Class="mb-4">
+                    MFA is <strong>not enabled</strong>. Add an extra layer of security to your account.
+                </MudAlert>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.QrCode"
+                           Href="/account/setup-mfa">
+                    Set Up Authenticator App
+                </MudButton>
+            }
+        </MudPaper>
+
+        @* ── Password ── *@
+        <MudPaper Elevation="2" Class="pa-6 mb-4">
+            <div class="d-flex align-center mb-4 gap-2">
+                <MudIcon Icon="@Icons.Material.Filled.Lock" Color="Color.Primary" />
+                <MudText Typo="Typo.h6">Password</MudText>
+            </div>
+            <MudText Typo="Typo.body2" Class="mb-4" Style="color:#666;">
+                Use a strong, unique password you don't use anywhere else.
+            </MudText>
+            <MudButton Variant="Variant.Outlined" Href="/account/change-password"
+                       StartIcon="@Icons.Material.Filled.Password">
+                Change Password
+            </MudButton>
+        </MudPaper>
+
+        @* ── Account Info ── *@
+        <MudPaper Elevation="2" Class="pa-6">
+            <div class="d-flex align-center mb-4 gap-2">
+                <MudIcon Icon="@Icons.Material.Filled.Person" Color="Color.Primary" />
+                <MudText Typo="Typo.h6">Account</MudText>
+            </div>
+            <MudText Typo="Typo.body2" Style="color:#666;">
+                Signed in as <strong>@_email</strong>
+            </MudText>
+        </MudPaper>
+
+    </MudItem>
+</MudGrid>
+
+@code {
+    private bool _mfaEnabled;
+    private bool _showDisableConfirm;
+    private bool _saving;
+    private string _disableCode = "";
+    private string? _disableError;
+    private List<string> _newRecoveryCodes = [];
+    private string _email = "";
+    private AppUser? _user;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        _user = await UserManager.GetUserAsync(authState.User);
+        if (_user is null) { Nav.NavigateTo("/login"); return; }
+
+        _mfaEnabled = await UserManager.GetTwoFactorEnabledAsync(_user);
+        _email = await UserManager.GetEmailAsync(_user) ?? _user.UserName ?? "";
+    }
+
+    private async Task DisableMfaAsync()
+    {
+        if (_user is null) return;
+        _disableError = null;
+
+        var cleanCode = _disableCode.Replace(" ", "").Replace("-", "");
+        if (cleanCode.Length != 6)
+        {
+            _disableError = "Please enter a valid 6-digit code.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var isValid = await UserManager.VerifyTwoFactorTokenAsync(
+                _user,
+                UserManager.Options.Tokens.AuthenticatorTokenProvider,
+                cleanCode);
+
+            if (!isValid)
+            {
+                _disableError = "Invalid code. Please try again.";
+                return;
+            }
+
+            await UserManager.SetTwoFactorEnabledAsync(_user, false);
+            _mfaEnabled = false;
+            _showDisableConfirm = false;
+            _disableCode = "";
+            Snackbar.Add("Two-factor authentication disabled.", Severity.Info);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task RegenerateRecoveryCodesAsync()
+    {
+        if (_user is null) return;
+        _saving = true;
+        _newRecoveryCodes = [];
+        try
+        {
+            var codes = await UserManager.GenerateNewTwoFactorRecoveryCodesAsync(_user, 10);
+            _newRecoveryCodes = codes!.ToList();
+            Snackbar.Add("New recovery codes generated. Save them now.", Severity.Warning);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}
