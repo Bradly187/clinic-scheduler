@@ -29,23 +29,28 @@ try
     var builder = WebApplication.CreateBuilder(args);
 
     // Serilog: read full config from appsettings then replace the bootstrap logger
-    builder.Host.UseSerilog((ctx, services, cfg) => cfg
-        .ReadFrom.Configuration(ctx.Configuration)
-        .ReadFrom.Services(services)
-        .Enrich.FromLogContext()
-        .Enrich.WithMachineName()
-        .Enrich.WithThreadId()
-        .WriteTo.Console(
-            ctx.HostingEnvironment.IsProduction()
-                ? new CompactJsonFormatter()
-                : null)
-        .WriteTo.File(
-            new CompactJsonFormatter(),
-            path: "logs/clinic-.log",
-            rollingInterval: RollingInterval.Day,
-            retainedFileCountLimit: 14,
-            fileSizeLimitBytes: 50_000_000,
-            rollOnFileSizeLimit: true));
+    builder.Host.UseSerilog((ctx, services, cfg) =>
+    {
+        cfg.ReadFrom.Configuration(ctx.Configuration)
+           .ReadFrom.Services(services)
+           .Enrich.FromLogContext()
+           .Enrich.WithMachineName()
+           .Enrich.WithThreadId()
+           .WriteTo.File(
+               new CompactJsonFormatter(),
+               path: "logs/clinic-.log",
+               rollingInterval: RollingInterval.Day,
+               retainedFileCountLimit: 14,
+               fileSizeLimitBytes: 50_000_000,
+               rollOnFileSizeLimit: true);
+
+        // WriteTo.Console(ITextFormatter) throws when formatter is null;
+        // use the overload with no formatter for human-readable dev output.
+        if (ctx.HostingEnvironment.IsProduction())
+            cfg.WriteTo.Console(new CompactJsonFormatter());
+        else
+            cfg.WriteTo.Console();
+    });
 
     // Register the Database Context
     var defaultConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
@@ -194,7 +199,7 @@ try
         };
         opts.EnrichDiagnosticContext = (diag, http) =>
         {
-            diag.Set("RequestHost", http.Request.Host.Value);
+            diag.Set("RequestHost", http.Request.Host.Value ?? string.Empty);
             diag.Set("UserName", http.User.Identity?.Name ?? "anonymous");
         };
     });
