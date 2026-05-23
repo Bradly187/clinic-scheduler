@@ -72,12 +72,15 @@ try
     // Background services
     builder.Services.AddHostedService<AppointmentReminderService>();
 
-    // Health check endpoint — used by load balancers and monitoring tools
-    builder.Services.AddHealthChecks()
-        .AddNpgSql(
-            builder.Configuration.GetConnectionString("DefaultConnection") ?? string.Empty,
-            name: "postgres",
-            tags: ["db", "ready"]);
+    // Health check endpoint — used by load balancers and monitoring tools.
+    // Npgsql check only registered when a connection string is available; in the
+    // Testing environment the fixture overrides the DbContext but appsettings.json
+    // has an empty string, so we skip the DB check rather than throwing at startup.
+    var healthChecks = builder.Services.AddHealthChecks();
+    if (!string.IsNullOrWhiteSpace(defaultConnectionString))
+    {
+        healthChecks.AddNpgSql(defaultConnectionString, name: "postgres", tags: ["db", "ready"]);
+    }
 
     // ASP.NET Core Identity
     builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
@@ -292,7 +295,7 @@ try
 
     app.Run();
 }
-catch (Exception ex) when (ex is not HostAbortedException)
+catch (Exception ex) when (ex is not HostAbortedException and not OperationCanceledException)
 {
     Log.Fatal(ex, "Clinic Scheduler terminated unexpectedly");
 }
