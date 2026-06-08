@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+#
+# The only REQUIRED value is seed_admin_password — everything else has a
+# sensible default in variables.tf.
+
+# Admin account seeded on first boot. Min 10 chars, with an uppercase letter,
+# a digit, and a special character. You'll log in with admin@clinic.com + this.
+seed_admin_password = "ChangeMe@2026!"
+
+# --- Optional overrides ------------------------------------------------------
+# region = "us-east-1"
+
+# Lock the app down to your IP while demoing (find it: curl https://checkip.amazonaws.com)
+# alb_ingress_cidrs = ["203.0.113.10/32"]
+
+# Provide an ACM cert (same region as the ALB) to enable HTTPS + HTTP->HTTPS redirect.
+# acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxxx"
+
+# Scale / size overrides
+# desired_count        = 1
+# container_cpu        = 256
+# container_memory     = 512
+# db_instance_class    = "db.t4g.micro"
+# db_multi_az          = false
