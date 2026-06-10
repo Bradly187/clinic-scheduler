@@ -67,7 +67,8 @@ public class CancelAppointmentRequestsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<CancelAppointmentRequestDto>>> GetAll(CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<CancelAppointmentRequestDto>>> GetAll(
+        CancellationToken ct, [FromQuery] int? page = null, [FromQuery] int? pageSize = null)
     {
         var isStaffOrAbove = User.IsInRole(RoleNames.Admin)
             || User.IsInRole(RoleNames.ClinicManager)
@@ -90,9 +91,15 @@ public class CancelAppointmentRequestsController : ControllerBase
             query = query.Where(r => r.Patient.Email == userEmail);
         }
 
-        var requests = await query
-            .OrderByDescending(r => r.CreatedAt)
-            .ToListAsync(ct);
+        query = query.OrderByDescending(r => r.CreatedAt);
+
+        if (Paging.Normalize(page, pageSize) is { } paging)
+        {
+            Response.Headers[Paging.TotalCountHeader] = (await query.CountAsync(ct)).ToString();
+            query = query.Skip(paging.Skip).Take(paging.Take);
+        }
+
+        var requests = await query.ToListAsync(ct);
 
         return Ok(requests.Select(static r => MapToDto(r)).ToList());
     }

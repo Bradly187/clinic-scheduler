@@ -2,6 +2,7 @@ using ClinicScheduler.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ClinicScheduler.Web.Api;
 
@@ -12,6 +13,7 @@ public class AccountController(SignInManager<AppUser> signInManager) : Controlle
 {
     /// <summary>Signs in a user with email and password, then redirects to <paramref name="returnUrl"/>.</summary>
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> Login(
         [FromForm] string email,
         [FromForm] string password,

@@ -20,10 +20,18 @@ public class TherapyTypesController : ControllerBase
         _repository = repository;
     }
 
-    /// <summary>Returns all therapy types.</summary>
+    /// <summary>Returns all therapy types, optionally paged via <paramref name="page"/>/<paramref name="pageSize"/>.</summary>
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<TherapyTypeDto>>> GetAll(CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<TherapyTypeDto>>> GetAll(
+        CancellationToken ct, [FromQuery] int? page = null, [FromQuery] int? pageSize = null)
     {
+        if (Paging.Normalize(page, pageSize) is { } paging)
+        {
+            Response.Headers[Paging.TotalCountHeader] = (await _repository.CountAsync(ct)).ToString();
+            var paged = await _repository.GetPagedAsync(paging.Skip, paging.Take, ct);
+            return Ok(paged.Select(static t => MapToDto(t)).ToList());
+        }
+
         var types = await _repository.GetAllAsync(ct);
         return Ok(types.Select(static t => MapToDto(t)).ToList());
     }

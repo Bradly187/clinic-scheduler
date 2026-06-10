@@ -70,13 +70,13 @@ variable "backup_retention_period" {
 variable "deletion_protection" {
   type        = bool
   description = "Block accidental deletion of the DB instance."
-  default     = false
+  default     = true
 }
 
 variable "skip_final_snapshot" {
   type        = bool
-  description = "Skip the final snapshot on destroy (true is convenient for sandbox teardown)."
-  default     = true
+  description = "Skip the final snapshot on destroy (set true only for sandbox teardown)."
+  default     = false
 }
 
 variable "tags" {

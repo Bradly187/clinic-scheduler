@@ -31,17 +31,45 @@ public class AppointmentsController : ControllerBase
         _notificationService = notificationService;
     }
 
+    /// <summary>
+    /// Returns appointments, optionally filtered to a date range (<paramref name="from"/>/<paramref name="to"/>)
+    /// and paged via <paramref name="page"/>/<paramref name="pageSize"/>.
+    /// </summary>
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<AppointmentDto>>> GetAll(CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<AppointmentDto>>> GetAll(
+        CancellationToken ct,
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
     {
-        var appointments = await _dbContext.Appointments
+        IQueryable<Appointment> query = _dbContext.Appointments
             .AsNoTracking()
             .Include(x => x.Patient)
             .Include(x => x.Therapist)
-            .Include(x => x.Room)
-            .OrderBy(x => x.StartTime)
-            .ToListAsync(ct);
+            .Include(x => x.Room);
 
+        if (from is not null)
+        {
+            var fromUtc = Paging.AsUtc(from.Value);
+            query = query.Where(x => x.EndTime >= fromUtc);
+        }
+
+        if (to is not null)
+        {
+            var toUtc = Paging.AsUtc(to.Value);
+            query = query.Where(x => x.StartTime < toUtc);
+        }
+
+        query = query.OrderBy(x => x.StartTime);
+
+        if (Paging.Normalize(page, pageSize) is { } paging)
+        {
+            Response.Headers[Paging.TotalCountHeader] = (await query.CountAsync(ct)).ToString();
+            query = query.Skip(paging.Skip).Take(paging.Take);
+        }
+
+        var appointments = await query.ToListAsync(ct);
         return Ok(appointments.Select(static x => MapToDto(x)).ToList());
     }
 
@@ -142,7 +170,14 @@ public class AppointmentsController : ControllerBase
         existing.TreatmentPlanId = request.TreatmentPlanId;
         existing.Notes = request.Notes;
 
-        await _dbContext.SaveChangesAsync(ct);
+        try
+        {
+            await _dbContext.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(new ProblemDetails { Detail = "The appointment was modified by another user. Reload and try again." });
+        }
 
         // Send appropriate notification after successful save
         var timeChanged = originalStartTime != existing.StartTime;

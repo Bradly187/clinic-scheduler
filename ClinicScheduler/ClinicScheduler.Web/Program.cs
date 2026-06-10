@@ -6,13 +6,46 @@ using ClinicScheduler.Web.Components;
 using ClinicScheduler.Web.Services;
 using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Infrastructure.Data;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 using MudBlazor.Services;
+using Serilog;
+using Serilog.Events;
+using Serilog.Formatting.Compact;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Structured logging: human-readable console in development, compact JSON in
+// production so CloudWatch can index fields. A "Serilog" config section, when
+// present, overrides these defaults.
+builder.Host.UseSerilog((context, loggerConfiguration) =>
+{
+    loggerConfiguration
+        .MinimumLevel.Information()
+        .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+        .ReadFrom.Configuration(context.Configuration)
+        .Enrich.FromLogContext();
+
+    if (context.HostingEnvironment.IsProduction())
+        loggerConfiguration.WriteTo.Console(new CompactJsonFormatter());
+    else
+        loggerConfiguration.WriteTo.Console();
+});
+
+// Behind the ALB, derive scheme/client IP from X-Forwarded-* headers so HTTPS
+// detection, secure cookies, and rate-limit partitioning see real values.
+// The task's security group only admits traffic from the ALB, so the proxy is trusted.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // Register the Database Context
 var defaultConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
@@ -31,10 +64,19 @@ builder.Services.AddDbContext<ClinicDbContext>(options =>
 // Register the repositories
 builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
 
+// Audit attribution: resolve the acting user from the ambient HTTP context
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<ICurrentUserService, HttpContextCurrentUserService>();
+builder.Services.AddScoped<IAuditLogger, AuditLogger>();
+
 // Register business logic services
 builder.Services.AddScoped<AppointmentSchedulingService>();
 builder.Services.AddScoped<MissedAppointmentService>();
 builder.Services.AddScoped<AppointmentNotificationService>();
+
+// Outbound email (no-op until the Email section is configured)
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
+builder.Services.AddSingleton<IClinicEmailSender, SmtpEmailSender>();
 
 // Background services
 builder.Services.AddHostedService<AppointmentReminderService>();
@@ -59,17 +101,52 @@ builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
 .AddEntityFrameworkStores<ClinicDbContext>()
 .AddDefaultTokenProviders();
 
+// Security:RequireHttps is enabled by the deployment when TLS terminates at the ALB
+// (set automatically by Terraform when an ACM certificate is configured)
+var requireHttps = builder.Configuration.GetValue<bool>("Security:RequireHttps");
+
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.LoginPath = "/login";
     options.AccessDeniedPath = "/login";
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.SlidingExpiration = true;
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = requireHttps
+        ? CookieSecurePolicy.Always
+        : CookieSecurePolicy.SameAsRequest;
 });
 
 builder.Services.AddAuthorization();
 
 builder.Services.AddCascadingAuthenticationState();
+
+// Health checks: /health (includes DB connectivity) is the ALB target
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database");
+
+// HSTS: one year, subdomains included (only sent on HTTPS responses outside development)
+builder.Services.AddHsts(options =>
+{
+    options.MaxAge = TimeSpan.FromDays(365);
+    options.IncludeSubDomains = true;
+});
+
+// Rate limiting: throttle credential-stuffing on the login endpoint per client IP
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+});
 
 // CORS — allow same-origin in production; configure AllowedOrigins in appsettings for external clients
 builder.Services.AddCors(options =>
@@ -188,6 +265,20 @@ else
 }
 
 // Configure the HTTP request pipeline.
+// Must run first so downstream middleware sees the original scheme and client IP
+app.UseForwardedHeaders();
+
+app.UseSerilogRequestLogging();
+
+// Baseline security headers on every response
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    await next();
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.UseWebAssemblyDebugging();
@@ -216,12 +307,21 @@ if (!app.Environment.IsProduction())
 app.UseStaticFiles();
 app.UseBlazorFrameworkFiles();
 app.UseCors("AppPolicy");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseAntiforgery();
 
 app.MapStaticAssets().AllowAnonymous();
+
+// Health endpoints: /health/live answers without touching dependencies;
+// /health includes the database check and is the ALB health-check target
+app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false
+}).AllowAnonymous();
+app.MapHealthChecks("/health").AllowAnonymous();
 
 // Map API endpoints
 app.MapControllers();

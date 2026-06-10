@@ -78,6 +78,18 @@ variable "db_multi_az" {
   default     = false
 }
 
+variable "db_deletion_protection" {
+  type        = bool
+  description = "Block accidental deletion of the DB instance. Disable only for sandbox teardown."
+  default     = true
+}
+
+variable "db_skip_final_snapshot" {
+  type        = bool
+  description = "Skip the final snapshot on destroy. Set true only for sandbox teardown."
+  default     = false
+}
+
 # --- App / ECS ---------------------------------------------------------------
 variable "container_image" {
   type        = string
@@ -112,7 +124,7 @@ variable "aspnetcore_environment" {
 variable "health_check_path" {
   type        = string
   description = "ALB target group health check path."
-  default     = "/"
+  default     = "/health"
 }
 
 variable "acm_certificate_arn" {

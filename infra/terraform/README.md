@@ -103,9 +103,21 @@ Tear it all down when you're not demoing:
 terraform destroy
 ```
 
-`skip_final_snapshot` and `recovery_window_in_days = 0` are set so destroy is
-clean for a sandbox. Flip `deletion_protection`/`skip_final_snapshot` and raise
-the secret recovery window for a real production deployment.
+The database now defaults to production-safe settings: `db_deletion_protection = true`
+and `db_skip_final_snapshot = false` (a final snapshot named `<prefix>-db-final` is
+taken on destroy). For a sandbox you want to tear down cleanly, set both to their
+permissive values in `terraform.tfvars`:
+
+```hcl
+db_deletion_protection = false
+db_skip_final_snapshot = true
+```
+
+`recovery_window_in_days = 0` on the secrets still allows immediate re-creation.
+
+The ALB health check now targets the app's `/health` endpoint (includes a database
+connectivity check). When `acm_certificate_arn` is set, the container also receives
+`Security__RequireHttps=true`, which turns on always-secure auth cookies in the app.
 
 ## CI/CD (GitHub Actions)
 

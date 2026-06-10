@@ -32,10 +32,11 @@ resource "aws_db_instance" "this" {
   multi_az               = var.multi_az
   publicly_accessible    = false
 
-  backup_retention_period = var.backup_retention_period
-  deletion_protection     = var.deletion_protection
-  skip_final_snapshot     = var.skip_final_snapshot
-  apply_immediately       = true
+  backup_retention_period   = var.backup_retention_period
+  deletion_protection       = var.deletion_protection
+  skip_final_snapshot       = var.skip_final_snapshot
+  final_snapshot_identifier = "${var.name_prefix}-db-final"
+  apply_immediately         = true
 
   tags = merge(var.tags, { Name = "${var.name_prefix}-db" })
 }

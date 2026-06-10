@@ -151,7 +151,9 @@ resource "aws_ecs_task_definition" "this" {
       ]
 
       environment = [
-        { name = "ASPNETCORE_ENVIRONMENT", value = var.aspnetcore_environment }
+        { name = "ASPNETCORE_ENVIRONMENT", value = var.aspnetcore_environment },
+        # Secure cookies + strict HTTPS behavior once TLS terminates at the ALB
+        { name = "Security__RequireHttps", value = var.acm_certificate_arn == "" ? "false" : "true" }
       ]
 
       secrets = [

@@ -21,19 +21,26 @@ public class TreatmentPlansController : ControllerBase
         _dbContext = dbContext;
     }
 
-    /// <summary>Returns all treatment plans with their associated therapies.</summary>
+    /// <summary>Returns all treatment plans with their associated therapies, optionally paged via <paramref name="page"/>/<paramref name="pageSize"/>.</summary>
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<TreatmentPlanDto>>> GetAll(CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<TreatmentPlanDto>>> GetAll(
+        CancellationToken ct, [FromQuery] int? page = null, [FromQuery] int? pageSize = null)
     {
-        var plans = await _dbContext.TreatmentPlans
+        IQueryable<TreatmentPlan> query = _dbContext.TreatmentPlans
             .AsNoTracking()
             .Include(x => x.Patient)
             .Include(x => x.Therapist)
             .Include(x => x.TreatmentPlanTherapies)
                 .ThenInclude(x => x.TherapyType)
-            .OrderByDescending(x => x.CreatedAt)
-            .ToListAsync(ct);
+            .OrderByDescending(x => x.CreatedAt);
 
+        if (Paging.Normalize(page, pageSize) is { } paging)
+        {
+            Response.Headers[Paging.TotalCountHeader] = (await query.CountAsync(ct)).ToString();
+            query = query.Skip(paging.Skip).Take(paging.Take);
+        }
+
+        var plans = await query.ToListAsync(ct);
         return Ok(plans.Select(static x => MapToDto(x)).ToList());
     }
 
@@ -145,7 +152,15 @@ public class TreatmentPlansController : ControllerBase
                 existing.AddTherapy(therapyType);
         }
 
-        await _dbContext.SaveChangesAsync(ct);
+        try
+        {
+            await _dbContext.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(new ProblemDetails { Detail = "The treatment plan was modified by another user. Reload and try again." });
+        }
+
         return NoContent();
     }
 

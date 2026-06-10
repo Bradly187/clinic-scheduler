@@ -1,5 +1,6 @@
 using System.Text;
 using ClinicScheduler.Core.Entities;
+using ClinicScheduler.Core.Interfaces;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -13,7 +14,13 @@ namespace ClinicScheduler.Infrastructure.Data;
 /// </summary>
 public class ClinicDbContext : IdentityDbContext<AppUser>
 {
-    public ClinicDbContext(DbContextOptions<ClinicDbContext> options) : base(options) { }
+    private readonly ICurrentUserService? _currentUser;
+
+    public ClinicDbContext(DbContextOptions<ClinicDbContext> options, ICurrentUserService? currentUser = null)
+        : base(options)
+    {
+        _currentUser = currentUser;
+    }
 
     public DbSet<Patient> Patients => Set<Patient>();
     public DbSet<Therapist> Therapists => Set<Therapist>();
@@ -71,6 +78,13 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
             .WithOne(sc => sc.Appointment)
             .HasForeignKey(sc => sc.AppointmentId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Optimistic concurrency: PostgreSQL's xmin system column detects when two
+        // users edit the same record; the second save throws DbUpdateConcurrencyException
+        modelBuilder.Entity<Appointment>().Property<uint>("xmin").IsRowVersion();
+        modelBuilder.Entity<Patient>().Property<uint>("xmin").IsRowVersion();
+        modelBuilder.Entity<Therapist>().Property<uint>("xmin").IsRowVersion();
+        modelBuilder.Entity<TreatmentPlan>().Property<uint>("xmin").IsRowVersion();
     }
     
     /// <summary>
@@ -137,8 +151,9 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
                 _ => throw new InvalidOperationException()
             };
             var changeSummary = BuildChangeSummary(entry);
+            var userId = _currentUser?.UserId ?? _currentUser?.UserName;
 
-            var auditLog = new AuditLog(entityName, entityId, action, changeSummary);
+            var auditLog = new AuditLog(entityName, entityId, action, changeSummary, userId);
             AuditLogs.Add(auditLog);
         }
     }

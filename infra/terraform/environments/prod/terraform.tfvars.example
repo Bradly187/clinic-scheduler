@@ -22,3 +22,8 @@ seed_admin_password = "ChangeMe@2026!"
 # container_memory     = 512
 # db_instance_class    = "db.t4g.micro"
 # db_multi_az          = false
+
+# Sandbox-only: allow clean `terraform destroy` (defaults are production-safe:
+# deletion protection on, final snapshot taken on destroy)
+# db_deletion_protection = false
+# db_skip_final_snapshot = true
