@@ -72,6 +72,7 @@ builder.Services.AddScoped<IAuditLogger, AuditLogger>();
 // Register business logic services
 builder.Services.AddScoped<AppointmentSchedulingService>();
 builder.Services.AddScoped<MissedAppointmentService>();
+builder.Services.AddScoped<TreatmentPlanScheduleService>();
 builder.Services.AddScoped<AppointmentNotificationService>();
 
 // Outbound email (no-op until the Email section is configured)

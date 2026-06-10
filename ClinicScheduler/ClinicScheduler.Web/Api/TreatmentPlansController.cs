@@ -1,5 +1,7 @@
 using ClinicScheduler.Core.Entities;
+using ClinicScheduler.Core.Services;
 using ClinicScheduler.Infrastructure.Data;
+using ClinicScheduler.Web.Contracts.Appointments;
 using ClinicScheduler.Web.Contracts.TreatmentPlans;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,12 +16,70 @@ namespace ClinicScheduler.Web.Api;
 public class TreatmentPlansController : ControllerBase
 {
     private readonly ClinicDbContext _dbContext;
+    private readonly TreatmentPlanScheduleService _scheduleService;
 
     /// <summary>Initializes a new instance of <see cref="TreatmentPlansController"/>.</summary>
-    public TreatmentPlansController(ClinicDbContext dbContext)
+    public TreatmentPlansController(ClinicDbContext dbContext, TreatmentPlanScheduleService scheduleService)
     {
         _dbContext = dbContext;
+        _scheduleService = scheduleService;
     }
+
+    /// <summary>
+    /// Generates the plan's recurring appointment series: books the remaining sessions
+    /// (TotalDays minus those already booked) at FrequencyPerWeek sessions per week,
+    /// preferring the requested days and time. Returns the booked appointments along
+    /// with a count of any sessions that could not be placed.
+    /// </summary>
+    [HttpPost("{id:int}/generate-appointments")]
+    public async Task<ActionResult<GenerateAppointmentsResponse>> GenerateAppointments(
+        int id, GenerateAppointmentsRequest request, CancellationToken ct)
+    {
+        try
+        {
+            var result = await _scheduleService.GenerateAppointmentsAsync(
+                id, request.RoomId, request.PreferredTime, request.PreferredDays, ct);
+
+            return Ok(new GenerateAppointmentsResponse
+            {
+                SessionsRequested = result.SessionsRequested,
+                SessionsBooked = result.SessionsBooked,
+                SessionsUnbooked = result.SessionsUnbooked,
+                Appointments = result.Created.Select(MapAppointmentToDto).ToList()
+            });
+        }
+        catch (ArgumentException ex) when (ex.ParamName == "treatmentPlanId")
+        {
+            return NotFound(ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new ProblemDetails { Detail = ex.Message });
+        }
+    }
+
+    private static AppointmentDto MapAppointmentToDto(Appointment appointment) => new()
+    {
+        Id = appointment.Id,
+        PatientId = appointment.PatientId,
+        PatientName = appointment.Patient.FullName,
+        TherapistId = appointment.TherapistId,
+        TherapistName = appointment.Therapist.FullName,
+        RoomId = appointment.RoomId,
+        RoomName = appointment.Room.Name,
+        TreatmentPlanId = appointment.TreatmentPlanId,
+        StartTime = appointment.StartTime,
+        EndTime = appointment.EndTime,
+        Status = appointment.Status,
+        HasConflict = appointment.HasConflict,
+        Notes = appointment.Notes,
+        CreatedAt = appointment.CreatedAt,
+        UpdatedAt = appointment.UpdatedAt
+    };
 
     /// <summary>Returns all treatment plans with their associated therapies, optionally paged via <paramref name="page"/>/<paramref name="pageSize"/>.</summary>
     [HttpGet]
