@@ -349,7 +349,10 @@ try
         app.UseHttpsRedirection();
 
     app.UseStaticFiles();
-    app.UseBlazorFrameworkFiles();
+    // Note: UseBlazorFrameworkFiles() must NOT be used here — it's for the legacy
+    // hosted-WASM model and dead-ends every /_framework/* request its branched
+    // pipeline can't find (including blazor.web.js). In the unified Blazor Web App
+    // model, framework assets are served by static web assets / MapStaticAssets.
     app.UseCors("AppPolicy");
     app.UseRateLimiter();
     app.UseAuthentication();
