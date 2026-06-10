@@ -1,4 +1,5 @@
 using ClinicScheduler.Core.Entities;
+using ClinicScheduler.Core.Exceptions;
 using ClinicScheduler.Core.Interfaces;
 
 namespace ClinicScheduler.Core.Services;
@@ -23,7 +24,6 @@ public class AppointmentSchedulingService
     private readonly IRepository<Room> _roomRepository;
     private readonly IRepository<TimeSlot> _timeSlotRepository;
     private readonly IRepository<Location> _locationRepository;
-    private readonly IRepository<ScheduleConflict> _scheduleConflictRepository;
 
     public AppointmentSchedulingService(
         IRepository<Appointment> appointmentRepository,
@@ -31,8 +31,7 @@ public class AppointmentSchedulingService
         IRepository<Therapist> therapistRepository,
         IRepository<Room> roomRepository,
         IRepository<TimeSlot> timeSlotRepository,
-        IRepository<Location> locationRepository,
-        IRepository<ScheduleConflict> scheduleConflictRepository)
+        IRepository<Location> locationRepository)
     {
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
@@ -40,7 +39,6 @@ public class AppointmentSchedulingService
         _roomRepository = roomRepository;
         _timeSlotRepository = timeSlotRepository;
         _locationRepository = locationRepository;
-        _scheduleConflictRepository = scheduleConflictRepository;
     }
 
     /// <summary>
@@ -155,13 +153,8 @@ public class AppointmentSchedulingService
 
         if (effectivePatientCount > location.DailyCapacity)
         {
-            // Record a Capacity conflict
-            newAppointment = await _appointmentRepository.AddAsync(newAppointment, ct);
-            var capacityConflict = new ScheduleConflict(newAppointment, ConflictType.Capacity);
-            await _scheduleConflictRepository.AddAsync(capacityConflict, ct);
-            newAppointment.HasConflict = true;
-            await _appointmentRepository.UpdateAsync(newAppointment, ct);
-            throw new InvalidOperationException(
+            // Nothing is persisted: a rejected booking must not leave artifacts behind
+            throw new CapacityExceededException(
                 $"Location daily capacity reached: cannot schedule more than {location.DailyCapacity} patients on this date.");
         }
 

@@ -184,13 +184,10 @@ public class TreatmentPlanScheduleServiceTests
             locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(Location);
 
-            var conflictRepo = new Mock<IRepository<ScheduleConflict>>();
-            conflictRepo.Setup(r => r.AddAsync(It.IsAny<ScheduleConflict>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync((ScheduleConflict sc, CancellationToken _) => sc);
 
             var schedulingService = new AppointmentSchedulingService(
                 apptRepo.Object, patientRepo.Object, therapistRepo.Object, roomRepo.Object,
-                timeSlotRepo.Object, locationRepo.Object, conflictRepo.Object);
+                timeSlotRepo.Object, locationRepo.Object);
 
             var planRepo = new Mock<IRepository<TreatmentPlan>>();
             planRepo.Setup(r => r.GetByIdAsync(PlanId, It.IsAny<CancellationToken>())).ReturnsAsync(Plan);

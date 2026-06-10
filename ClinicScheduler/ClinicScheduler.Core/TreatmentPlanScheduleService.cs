@@ -1,4 +1,5 @@
 using ClinicScheduler.Core.Entities;
+using ClinicScheduler.Core.Exceptions;
 using ClinicScheduler.Core.Interfaces;
 
 namespace ClinicScheduler.Core.Services;
@@ -175,7 +176,7 @@ public class TreatmentPlanScheduleService
                 await _appointmentRepository.UpdateAsync(appointment, ct);
                 return appointment;
             }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("capacity", StringComparison.OrdinalIgnoreCase))
+            catch (CapacityExceededException)
             {
                 // The whole day is at capacity — no point trying other slots
                 return null;

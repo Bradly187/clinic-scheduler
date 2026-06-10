@@ -1,4 +1,5 @@
 using ClinicScheduler.Core.Entities;
+using ClinicScheduler.Core.Exceptions;
 using ClinicScheduler.Core.Interfaces;
 
 namespace ClinicScheduler.Core.Services;
@@ -86,6 +87,11 @@ public class MissedAppointmentService
                     await _appointmentRepository.UpdateAsync(newAppointment, ct);
 
                     return newAppointment;
+                }
+                catch (CapacityExceededException)
+                {
+                    // The location is full for this day — skip its remaining slots
+                    break;
                 }
                 catch (InvalidOperationException)
                 {

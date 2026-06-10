@@ -1,4 +1,5 @@
 using ClinicScheduler.Core.Entities;
+using ClinicScheduler.Core.Exceptions;
 using ClinicScheduler.Core.Interfaces;
 
 namespace ClinicScheduler.Core.Services;
@@ -98,6 +99,11 @@ public class WaitlistService
                 await _waitlistRepository.UpdateAsync(entry, ct);
                 return new WaitlistFulfillment { Entry = entry, Appointment = appointment };
             }
+            catch (CapacityExceededException)
+            {
+                // The location is at capacity that day — no candidate can take the slot
+                return null;
+            }
             catch (InvalidOperationException)
             {
                 // This candidate conflicts (e.g. patient already booked then) — try the next
@@ -167,7 +173,7 @@ public class WaitlistService
                             await _waitlistRepository.UpdateAsync(entry, ct);
                             return appointment;
                         }
-                        catch (InvalidOperationException ex) when (ex.Message.Contains("capacity", StringComparison.OrdinalIgnoreCase))
+                        catch (CapacityExceededException)
                         {
                             // The room's location is full for the day — skip its remaining slots
                             locationFullToday = true;

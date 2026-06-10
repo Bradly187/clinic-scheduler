@@ -164,13 +164,10 @@ public class WaitlistServiceTests
             locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(Location);
 
-            var conflictRepo = new Mock<IRepository<ScheduleConflict>>();
-            conflictRepo.Setup(r => r.AddAsync(It.IsAny<ScheduleConflict>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync((ScheduleConflict sc, CancellationToken _) => sc);
 
             var schedulingService = new AppointmentSchedulingService(
                 apptRepo.Object, _patientRepo.Object, therapistRepo.Object, roomRepo.Object,
-                timeSlotRepo.Object, locationRepo.Object, conflictRepo.Object);
+                timeSlotRepo.Object, locationRepo.Object);
 
             var waitlistRepo = new Mock<IRepository<WaitlistEntry>>();
             waitlistRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<WaitlistEntry, bool>>>(), It.IsAny<CancellationToken>()))
