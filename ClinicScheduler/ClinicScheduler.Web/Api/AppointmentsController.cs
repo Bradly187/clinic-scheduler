@@ -18,17 +18,41 @@ public class AppointmentsController : ControllerBase
     private readonly AppointmentSchedulingService _schedulingService;
     private readonly MissedAppointmentService _missedAppointmentService;
     private readonly AppointmentNotificationService _notificationService;
+    private readonly WaitlistService _waitlistService;
+    private readonly WaitlistFulfillmentNotifier _waitlistNotifier;
 
     public AppointmentsController(
         ClinicDbContext dbContext,
         AppointmentSchedulingService schedulingService,
         MissedAppointmentService missedAppointmentService,
-        AppointmentNotificationService notificationService)
+        AppointmentNotificationService notificationService,
+        WaitlistService waitlistService,
+        WaitlistFulfillmentNotifier waitlistNotifier)
     {
         _dbContext = dbContext;
         _schedulingService = schedulingService;
         _missedAppointmentService = missedAppointmentService;
         _notificationService = notificationService;
+        _waitlistService = waitlistService;
+        _waitlistNotifier = waitlistNotifier;
+    }
+
+    /// <summary>
+    /// Offers a freed slot to the waitlist. Best-effort: a failure here must not
+    /// fail the cancellation that freed the slot.
+    /// </summary>
+    private async Task OfferFreedSlotToWaitlistAsync(int roomId, int therapistId, DateTime slotStart, CancellationToken ct)
+    {
+        try
+        {
+            var fulfillment = await _waitlistService.TryFulfillFreedSlotAsync(roomId, therapistId, slotStart, ct);
+            if (fulfillment is not null)
+                await _waitlistNotifier.NotifyAsync([fulfillment], ct);
+        }
+        catch (Exception)
+        {
+            // The background sweep will retry matching entries on its next pass
+        }
     }
 
     /// <summary>
@@ -204,6 +228,9 @@ public class AppointmentsController : ControllerBase
                 .FirstAsync(x => x.Id == existing.Id, ct);
 
             await _notificationService.NotifyAppointmentCancelledAsync(loaded, ct);
+
+            // The canceled slot is now free — offer it to the waitlist
+            await OfferFreedSlotToWaitlistAsync(existing.RoomId, existing.TherapistId, existing.StartTime, ct);
         }
         else
         {
@@ -280,8 +307,14 @@ public class AppointmentsController : ControllerBase
         var appointment = await _dbContext.Appointments.FirstOrDefaultAsync(x => x.Id == id, ct);
         if (appointment is null) return NotFound();
 
+        var (roomId, therapistId, startTime) = (appointment.RoomId, appointment.TherapistId, appointment.StartTime);
+
         _dbContext.Appointments.Remove(appointment);
         await _dbContext.SaveChangesAsync(ct);
+
+        // The deleted slot is now free — offer it to the waitlist
+        await OfferFreedSlotToWaitlistAsync(roomId, therapistId, startTime, ct);
+
         return NoContent();
     }
 

@@ -36,6 +36,7 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
     public DbSet<CancelAppointmentRequest> CancelAppointmentRequests => Set<CancelAppointmentRequest>();
     public DbSet<TimeSlot> TimeSlots => Set<TimeSlot>();
     public DbSet<ScheduleConflict> ScheduleConflicts => Set<ScheduleConflict>();
+    public DbSet<WaitlistEntry> WaitlistEntries => Set<WaitlistEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -87,6 +88,26 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
             .WithOne(sc => sc.Appointment)
             .HasForeignKey(sc => sc.AppointmentId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Waitlist: keep entries when optional preferences or the fulfilling
+        // appointment are deleted; only the patient cascade removes entries
+        modelBuilder.Entity<WaitlistEntry>()
+            .HasOne(w => w.Therapist)
+            .WithMany()
+            .HasForeignKey(w => w.TherapistId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<WaitlistEntry>()
+            .HasOne(w => w.Location)
+            .WithMany()
+            .HasForeignKey(w => w.LocationId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<WaitlistEntry>()
+            .HasOne(w => w.FulfilledAppointment)
+            .WithMany()
+            .HasForeignKey(w => w.FulfilledAppointmentId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         // Optimistic concurrency: PostgreSQL's xmin system column detects when two
         // users edit the same record; the second save throws DbUpdateConcurrencyException

@@ -1,0 +1,298 @@
+@page "/waitlist"
+@attribute [Authorize(Roles = "Admin,ClinicManager,Staff,Therapist")]
+@inject IDbContextFactory<ClinicDbContext> DbFactory
+@inject IRepository<Patient> PatientRepo
+@inject IRepository<Therapist> TherapistRepo
+@inject IRepository<Location> LocationRepo
+@inject WaitlistService WaitlistSvc
+@inject ISnackbar Snackbar
+
+<PageTitle>Waitlist</PageTitle>
+
+<div class="d-flex align-center justify-space-between mb-4">
+    <MudText Typo="Typo.h5">Waitlist</MudText>
+    <div>
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="mr-2"
+                   StartIcon="@Icons.Material.Filled.PlayCircleOutline"
+                   Disabled="@_processing"
+                   OnClick="ProcessNowAsync">
+            @(_processing ? "Processing…" : "Process Now")
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="OpenAddDialog">
+            Add to Waitlist
+        </MudButton>
+    </div>
+</div>
+
+<MudDataGrid T="WaitlistEntry" Items="_entries" Loading="_loading"
+             SortMode="SortMode.Single" Hover="true" Elevation="1">
+    <Columns>
+        <TemplateColumn Title="Patient">
+            <CellTemplate>@context.Item.Patient?.FullName</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Window">
+            <CellTemplate>
+                @context.Item.EarliestDate.ToString("MMM d") – @context.Item.LatestDate.ToString("MMM d, yyyy")
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Time">
+            <CellTemplate>
+                @if (context.Item.PreferredTimeFrom is null && context.Item.PreferredTimeTo is null)
+                {
+                    <span>Any</span>
+                }
+                else
+                {
+                    <span>@(context.Item.PreferredTimeFrom?.ToString("h:mm tt") ?? "…") – @(context.Item.PreferredTimeTo?.ToString("h:mm tt") ?? "…")</span>
+                }
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Therapist">
+            <CellTemplate>@(context.Item.Therapist?.FullName ?? "Any")</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Location">
+            <CellTemplate>@(context.Item.Location?.Name ?? "Any")</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Status">
+            <CellTemplate>
+                <MudChip T="string" Size="Size.Small" Color="@StatusChipColor(context.Item.Status)">
+                    @context.Item.Status
+                </MudChip>
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Added">
+            <CellTemplate>@context.Item.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Actions" Sortable="false">
+            <CellTemplate>
+                @if (context.Item.Status == WaitlistStatus.Active)
+                {
+                    <MudIconButton Icon="@Icons.Material.Filled.Cancel" Size="Size.Small"
+                                   Color="Color.Error"
+                                   aria-label="Remove from waitlist"
+                                   OnClick="@(() => CancelEntryAsync(context.Item))" />
+                }
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>
+        <MudText Class="pa-4">No waitlist entries.</MudText>
+    </NoRecordsContent>
+</MudDataGrid>
+
+<MudDialog @bind-Visible="_dialogOpen" Options="_dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">Add to Waitlist</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_errorMessage is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@_errorMessage</MudAlert>
+        }
+        <MudSelect T="int" @bind-Value="_formPatientId" Label="Patient" Required="true"
+                   Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var p in _allPatients)
+            {
+                <MudSelectItem T="int" Value="@p.Id">@p.FullName</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="int" @bind-Value="_formTherapistId" Label="Preferred Therapist"
+                   Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem T="int" Value="0">Any therapist</MudSelectItem>
+            @foreach (var t in _allTherapists)
+            {
+                <MudSelectItem T="int" Value="@t.Id">@t.FullName</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="int" @bind-Value="_formLocationId" Label="Preferred Location"
+                   Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem T="int" Value="0">Any location</MudSelectItem>
+            @foreach (var l in _allLocations)
+            {
+                <MudSelectItem T="int" Value="@l.Id">@l.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudDatePicker @bind-Date="_formEarliest" Label="Earliest Date" Required="true"
+                       Variant="Variant.Outlined" Class="mb-3"
+                       Editable="true" DateFormat="MM/dd/yyyy" />
+        <MudDatePicker @bind-Date="_formLatest" Label="Latest Date" Required="true"
+                       Variant="Variant.Outlined" Class="mb-3"
+                       Editable="true" DateFormat="MM/dd/yyyy" />
+        <MudTimePicker @bind-Time="_formTimeFrom" Label="Earliest time (optional)"
+                       Variant="Variant.Outlined" Class="mb-3" Clearable="true" />
+        <MudTimePicker @bind-Time="_formTimeTo" Label="Latest time (optional)"
+                       Variant="Variant.Outlined" Class="mb-3" Clearable="true" />
+        <MudTextField T="string" @bind-Value="_formNotes" Label="Notes (optional)"
+                      Variant="Variant.Outlined" Lines="2" Class="mb-3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _dialogOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Add</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<WaitlistEntry> _entries = [];
+    private List<Patient> _allPatients = [];
+    private List<Therapist> _allTherapists = [];
+    private List<Location> _allLocations = [];
+    private bool _loading = true;
+    private bool _processing;
+    private bool _dialogOpen;
+    private int _formPatientId;
+    private int _formTherapistId;
+    private int _formLocationId;
+    private DateTime? _formEarliest;
+    private DateTime? _formLatest;
+    private TimeSpan? _formTimeFrom;
+    private TimeSpan? _formTimeTo;
+    private string? _formNotes;
+    private string? _errorMessage;
+
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allPatients = (await PatientRepo.GetAllAsync()).ToList();
+        _allTherapists = (await TherapistRepo.GetAllAsync())
+            .Where(t => !string.IsNullOrWhiteSpace(t.Specialty)
+                && !t.Specialty.Contains("admin", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        _allLocations = (await LocationRepo.GetAllAsync()).ToList();
+        if (_allPatients.Count > 0) _formPatientId = _allPatients[0].Id;
+        await LoadEntriesAsync();
+    }
+
+    private async Task LoadEntriesAsync()
+    {
+        _loading = true;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _entries = await db.WaitlistEntries
+            .Include(w => w.Patient)
+            .Include(w => w.Therapist)
+            .Include(w => w.Location)
+            .OrderBy(w => w.Status)
+            .ThenBy(w => w.CreatedAt)
+            .ToListAsync();
+        _loading = false;
+    }
+
+    private void OpenAddDialog()
+    {
+        _formPatientId = _allPatients.Count > 0 ? _allPatients[0].Id : 0;
+        _formTherapistId = 0;
+        _formLocationId = 0;
+        _formEarliest = DateTime.Today.AddDays(1);
+        _formLatest = DateTime.Today.AddDays(30);
+        _formTimeFrom = null;
+        _formTimeTo = null;
+        _formNotes = null;
+        _errorMessage = null;
+        _dialogOpen = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _errorMessage = null;
+        if (_formPatientId == 0)            { _errorMessage = "Please select a patient."; return; }
+        if (_formEarliest is null || _formLatest is null) { _errorMessage = "Both dates are required."; return; }
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var patient = await db.Patients.FindAsync(_formPatientId)
+                ?? throw new InvalidOperationException("Patient not found.");
+            var therapist = _formTherapistId > 0 ? await db.Therapists.FindAsync(_formTherapistId) : null;
+            var location = _formLocationId > 0 ? await db.Locations.FindAsync(_formLocationId) : null;
+
+            var entry = new WaitlistEntry(
+                patient,
+                DateOnly.FromDateTime(_formEarliest.Value.Date),
+                DateOnly.FromDateTime(_formLatest.Value.Date),
+                therapist,
+                location,
+                _formTimeFrom is { } from ? TimeOnly.FromTimeSpan(from) : null,
+                _formTimeTo is { } to ? TimeOnly.FromTimeSpan(to) : null,
+                string.IsNullOrWhiteSpace(_formNotes) ? null : _formNotes);
+
+            db.WaitlistEntries.Add(entry);
+            await db.SaveChangesAsync();
+
+            _dialogOpen = false;
+            Snackbar.Add("Patient added to the waitlist.", Severity.Success);
+            await LoadEntriesAsync();
+        }
+        catch (ArgumentException ex)         { _errorMessage = ex.Message; }
+        catch (InvalidOperationException ex) { _errorMessage = ex.Message; }
+    }
+
+    private async Task CancelEntryAsync(WaitlistEntry entry)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var tracked = await db.WaitlistEntries.FindAsync(entry.Id);
+            if (tracked is null) return;
+            tracked.Cancel();
+            await db.SaveChangesAsync();
+            Snackbar.Add("Waitlist entry removed.", Severity.Success);
+            await LoadEntriesAsync();
+        }
+        catch (InvalidOperationException ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+
+    private async Task ProcessNowAsync()
+    {
+        _processing = true;
+        try
+        {
+            var fulfillments = await WaitlistSvc.ProcessWaitlistAsync();
+
+            // In-app notifications for booked patients (email is sent by the background sweep path)
+            if (fulfillments.Count > 0)
+            {
+                await using var db = await DbFactory.CreateDbContextAsync();
+                foreach (var f in fulfillments)
+                {
+                    var user = await db.Users.FirstOrDefaultAsync(u => u.UserName == f.Appointment.Patient.Email);
+                    if (user is null) continue;
+                    var local = f.Appointment.StartTime.ToLocalTime();
+                    db.Notifications.Add(new Notification(
+                        user.Id,
+                        NotificationType.WaitlistFulfilled,
+                        "Waitlist: Appointment Booked",
+                        $"A slot opened up! Your appointment with {f.Appointment.Therapist?.FullName} is booked for {local:ddd, MMM d} at {local:h:mm tt}.",
+                        f.Appointment.Id));
+                }
+                await db.SaveChangesAsync();
+            }
+
+            Snackbar.Add(
+                fulfillments.Count > 0
+                    ? $"Booked {fulfillments.Count} appointment(s) from the waitlist."
+                    : "No waitlist entries could be booked right now.",
+                fulfillments.Count > 0 ? Severity.Success : Severity.Info);
+
+            await LoadEntriesAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Waitlist processing failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _processing = false;
+        }
+    }
+
+    private static Color StatusChipColor(WaitlistStatus status) => status switch
+    {
+        WaitlistStatus.Active => Color.Info,
+        WaitlistStatus.Fulfilled => Color.Success,
+        WaitlistStatus.Canceled => Color.Default,
+        WaitlistStatus.Expired => Color.Warning,
+        _ => Color.Default
+    };
+}

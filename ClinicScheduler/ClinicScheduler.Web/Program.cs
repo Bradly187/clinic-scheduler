@@ -73,6 +73,8 @@ builder.Services.AddScoped<IAuditLogger, AuditLogger>();
 builder.Services.AddScoped<AppointmentSchedulingService>();
 builder.Services.AddScoped<MissedAppointmentService>();
 builder.Services.AddScoped<TreatmentPlanScheduleService>();
+builder.Services.AddScoped<WaitlistService>();
+builder.Services.AddScoped<WaitlistFulfillmentNotifier>();
 builder.Services.AddScoped<AppointmentNotificationService>();
 
 // Outbound email (no-op until the Email section is configured)
@@ -81,6 +83,7 @@ builder.Services.AddSingleton<IClinicEmailSender, SmtpEmailSender>();
 
 // Background services
 builder.Services.AddHostedService<AppointmentReminderService>();
+builder.Services.AddHostedService<WaitlistProcessingService>();
 
 // ASP.NET Core Identity
 builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
