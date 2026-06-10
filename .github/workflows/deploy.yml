@@ -3,8 +3,10 @@ name: Build, Test & Deploy
 on:
   push:
     branches: [MVP]
+  pull_request:
+    branches: [MVP]
   # Deploys are manual-only: run this workflow from the Actions tab to deploy.
-  # Pushing/merging to MVP runs build + tests but never touches AWS.
+  # Pushes, merges, and PRs run build + tests but never touch AWS.
   workflow_dispatch:
 
 # Least-privilege default; the deploy job opts into id-token for OIDC.
