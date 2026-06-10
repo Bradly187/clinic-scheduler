@@ -570,12 +570,12 @@
         try
         {
             await using var DbContext = await DbFactory.CreateDbContextAsync();
+            // Duration comes from the room's location (configurable per location)
             var appt = await SchedulingService.CreateAppointmentAsync(
                 _approveTarget.PatientId,
                 _approveTherapistId,
                 _approveRoomId,
-                _approveTarget.PreferredDateTime,
-                TimeSpan.FromMinutes(30));
+                _approveTarget.PreferredDateTime);
 
             var tracked = await DbContext.AppointmentRequests.FindAsync(_approveTarget.Id);
             tracked!.Approve(appt);

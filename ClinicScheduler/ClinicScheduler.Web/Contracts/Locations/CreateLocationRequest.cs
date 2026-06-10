@@ -50,4 +50,17 @@ public sealed class CreateLocationRequest
     /// <example>America/Chicago</example>
     [StringLength(100)]
     public string? TimeZone { get; init; }
+
+    /// <summary>
+    /// Length of one appointment slot in minutes (optional; defaults to 30).
+    /// </summary>
+    /// <example>30</example>
+    [Range(5, 240)]
+    public int? SlotDurationMinutes { get; init; }
+
+    /// <summary>
+    /// Operating windows for the location (optional). When omitted or empty, the
+    /// default 8:00 AM–5:00 PM weekday schedule applies.
+    /// </summary>
+    public List<OperatingHoursDto>? OperatingHours { get; init; }
 }

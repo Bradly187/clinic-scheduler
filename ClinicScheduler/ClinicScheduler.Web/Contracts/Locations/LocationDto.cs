@@ -48,6 +48,24 @@ public sealed class LocationDto
     public string? TimeZone { get; init; }
     
     /// <summary>
+    /// The maximum number of distinct patients this location can serve per day.
+    /// </summary>
+    /// <example>12</example>
+    public int DailyCapacity { get; init; }
+
+    /// <summary>
+    /// Length of one appointment slot at this location, in minutes.
+    /// </summary>
+    /// <example>30</example>
+    public int SlotDurationMinutes { get; init; }
+
+    /// <summary>
+    /// The location's configured operating windows. Empty means the default
+    /// schedule applies (8:00 AM–5:00 PM, Monday through Friday).
+    /// </summary>
+    public IReadOnlyList<OperatingHoursDto> OperatingHours { get; init; } = [];
+
+    /// <summary>
     /// The timestamp when the location record was created.
     /// </summary>
     /// <example>2024-01-15T10:30:00Z</example>

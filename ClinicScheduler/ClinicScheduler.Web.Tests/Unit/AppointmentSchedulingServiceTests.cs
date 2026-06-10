@@ -322,6 +322,141 @@ public class AppointmentSchedulingServiceTests
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*30 days*");
     }
 
+    // ── Configurable hours & slot duration ───────────────────────────────────
+
+    [Fact]
+    public async Task CreateAppointmentAsync_WrongDurationForLocation_ThrowsArgumentException()
+    {
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, scheduleConflictRepo) = BuildMocks();
+        SetupCoreEntities(patientRepo, therapistRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, scheduleConflictRepo);
+
+        // Location configured for 45-minute slots
+        var location45 = new Location("Main", "123 St") { Id = 1 };
+        location45.SetSlotDuration(45);
+        locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(location45);
+
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, scheduleConflictRepo);
+
+        // 8:45 is aligned for 45-minute slots starting at 8:00, but the duration is wrong
+        var slot = new DateTime(2030, 6, 3, 8, 45, 0, DateTimeKind.Utc); // Monday
+        var act = async () => await sut.CreateAppointmentAsync(1, 1, 1, slot, Thirty);
+        await act.Should().ThrowAsync<ArgumentException>().WithMessage("*45 minutes*");
+    }
+
+    [Fact]
+    public async Task CreateAppointmentAsync_CustomSlotDuration_Succeeds()
+    {
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, scheduleConflictRepo) = BuildMocks();
+        SetupCoreEntities(patientRepo, therapistRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, scheduleConflictRepo);
+
+        var location45 = new Location("Main", "123 St") { Id = 1 };
+        location45.SetSlotDuration(45);
+        locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(location45);
+
+        apptRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<Appointment, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Appointment>());
+        apptRepo.Setup(r => r.AddAsync(It.IsAny<Appointment>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Appointment a, CancellationToken _) => a);
+
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, scheduleConflictRepo);
+
+        var slot = new DateTime(2030, 6, 3, 8, 45, 0, DateTimeKind.Utc); // Monday, aligned from 8:00
+        var fortyFive = TimeSpan.FromMinutes(45);
+        var result = await sut.CreateAppointmentAsync(1, 1, 1, slot, fortyFive);
+
+        result.StartTime.Should().Be(slot);
+        result.EndTime.Should().Be(slot.Add(fortyFive));
+    }
+
+    [Fact]
+    public async Task ValidateSlotForLocation_SaturdayWithConfiguredWindow_DoesNotThrow()
+    {
+        var (_, _, _, _, timeSlotRepo, locationRepo, _) = BuildMocks();
+        locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Loc);
+
+        // Location open Saturday mornings 9:00–12:00
+        var saturdayWindow = new TimeSlot(new TimeOnly(9, 0), new TimeOnly(12, 0), DayOfWeek.Saturday, Loc);
+        timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<TimeSlot> { saturdayWindow });
+
+        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo, new());
+
+        var saturday = NextOccurrenceOf(DayOfWeek.Saturday, hour: 9).AddMinutes(30); // 9:30, aligned from 9:00
+        var act = async () => await sut.ValidateSlotForLocation(saturday, 1);
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task ValidateSlotForLocation_MisalignedWithinConfiguredWindow_ThrowsBoundaryError()
+    {
+        var (_, _, _, _, timeSlotRepo, locationRepo, _) = BuildMocks();
+        locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Loc);
+
+        // Window starts at 8:15 — slots fall at 8:15, 8:45, 9:15, ... not 9:00
+        var window = new TimeSlot(new TimeOnly(8, 15), new TimeOnly(12, 15), DayOfWeek.Monday, Loc);
+        timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<TimeSlot> { window });
+
+        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo, new());
+
+        var misaligned = new DateTime(2030, 6, 3, 9, 0, 0, DateTimeKind.Utc); // Monday 9:00
+        var act = async () => await sut.ValidateSlotForLocation(misaligned, 1);
+        await act.Should().ThrowAsync<ArgumentException>().WithMessage("*30-minute boundary*");
+
+        var aligned = new DateTime(2030, 6, 3, 8, 45, 0, DateTimeKind.Utc); // Monday 8:45
+        var actAligned = async () => await sut.ValidateSlotForLocation(aligned, 1);
+        await actAligned.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task GetDailySlotsForRoomAsync_45MinuteLocation_ReturnsAlignedSlots()
+    {
+        var (_, _, _, roomRepo, timeSlotRepo, locationRepo, _) = BuildMocks();
+        roomRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Room1);
+
+        var location45 = new Location("Main", "123 St") { Id = 1 };
+        location45.SetSlotDuration(45);
+        locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(location45);
+        timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<TimeSlot>());
+
+        var sut = BuildSut(new(), new(), new(), roomRepo, timeSlotRepo, locationRepo, new());
+
+        var monday = new DateTime(2030, 6, 3, 0, 0, 0, DateTimeKind.Utc);
+        var (slots, slotLength) = await sut.GetDailySlotsForRoomAsync(1, monday, CancellationToken.None);
+
+        slotLength.Should().Be(TimeSpan.FromMinutes(45));
+        // Default 8:00–17:00 window = 540 minutes → 12 full 45-minute slots
+        slots.Should().HaveCount(12);
+        slots.First().Should().Be(monday.AddHours(8));
+        slots.Last().Should().Be(monday.AddHours(8).AddMinutes(45 * 11));
+    }
+
+    [Fact]
+    public async Task GetDailySlotsForRoomAsync_Weekend_NoConfiguredHours_ReturnsEmpty()
+    {
+        var (_, _, _, roomRepo, timeSlotRepo, locationRepo, _) = BuildMocks();
+        roomRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Room1);
+        locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Loc);
+        timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<TimeSlot>());
+
+        var sut = BuildSut(new(), new(), new(), roomRepo, timeSlotRepo, locationRepo, new());
+
+        var saturday = new DateTime(2030, 6, 1, 0, 0, 0, DateTimeKind.Utc); // Saturday
+        var (slots, _) = await sut.GetDailySlotsForRoomAsync(1, saturday, CancellationToken.None);
+
+        slots.Should().BeEmpty();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static readonly DateTime ValidSlot = new(2030, 6, 3, 9, 0, 0, DateTimeKind.Utc);

@@ -5,14 +5,10 @@ namespace ClinicScheduler.Core.Services;
 
 /// <summary>
 /// Handles marking an appointment as missed and automatically rescheduling it
-/// to the next available 30-minute slot within clinic hours.
+/// to the next available slot within the location's configured clinic hours.
 /// </summary>
 public class MissedAppointmentService
 {
-    private static readonly TimeSpan ClinicOpen = TimeSpan.FromHours(8);
-    private static readonly TimeSpan ClinicClose = TimeSpan.FromHours(17);
-    private static readonly TimeSpan SlotDuration = TimeSpan.FromMinutes(30);
-
     private readonly IRepository<Appointment> _appointmentRepository;
     private readonly IRepository<TreatmentPlan> _treatmentPlanRepository;
     private readonly AppointmentSchedulingService _schedulingService;
@@ -69,14 +65,12 @@ public class MissedAppointmentService
         {
             var candidate = searchStart.AddDays(day);
 
-            if (candidate.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
-                continue;
+            // Walk through each valid slot for the room's location on this day
+            var (slotStarts, slotLength) = await _schedulingService.GetDailySlotsForRoomAsync(
+                missed.RoomId, candidate, ct);
 
-            // Walk through each 30-min slot between 8:00 and 16:30
-            for (var slotStart = ClinicOpen; slotStart + SlotDuration <= ClinicClose; slotStart += SlotDuration)
+            foreach (var slotDateTime in slotStarts)
             {
-                var slotDateTime = candidate.Add(slotStart);
-
                 try
                 {
                     var newAppointment = await _schedulingService.CreateAppointmentAsync(
@@ -84,7 +78,7 @@ public class MissedAppointmentService
                         missed.TherapistId,
                         missed.RoomId,
                         slotDateTime,
-                        SlotDuration,
+                        slotLength,
                         ct);
 
                     newAppointment.TreatmentPlanId = missed.TreatmentPlanId;

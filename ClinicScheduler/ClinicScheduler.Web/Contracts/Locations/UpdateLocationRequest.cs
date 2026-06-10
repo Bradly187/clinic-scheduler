@@ -50,4 +50,18 @@ public sealed class UpdateLocationRequest
     /// <example>America/Chicago</example>
     [StringLength(100)]
     public string? TimeZone { get; init; }
+
+    /// <summary>
+    /// Updated slot length in minutes (optional; null leaves the current value unchanged).
+    /// </summary>
+    /// <example>45</example>
+    [Range(5, 240)]
+    public int? SlotDurationMinutes { get; init; }
+
+    /// <summary>
+    /// Updated operating windows (optional). Null leaves the current configuration
+    /// unchanged; an empty list clears it, restoring the default 8:00 AM–5:00 PM
+    /// weekday schedule.
+    /// </summary>
+    public List<OperatingHoursDto>? OperatingHours { get; init; }
 }

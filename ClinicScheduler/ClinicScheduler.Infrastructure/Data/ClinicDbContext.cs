@@ -73,6 +73,15 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
             .HasForeignKey(ts => ts.LocationId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        modelBuilder.Entity<Location>()
+            .Property(l => l.SlotDurationMinutes)
+            .HasDefaultValue(Location.DefaultSlotDurationMinutes);
+
+        modelBuilder.Entity<Location>()
+            .ToTable(t => t.HasCheckConstraint(
+                "CK_Location_SlotDuration",
+                $"\"SlotDurationMinutes\" BETWEEN {Location.MinSlotDurationMinutes} AND {Location.MaxSlotDurationMinutes}"));
+
         modelBuilder.Entity<Appointment>()
             .HasMany(a => a.ScheduleConflicts)
             .WithOne(sc => sc.Appointment)

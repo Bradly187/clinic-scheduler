@@ -116,13 +116,12 @@
             _error = "Cannot book appointments in the past.";
             return;
         }
-        var duration = TimeSpan.FromMinutes(30);
-
         try
         {
+            // Duration comes from the room's location (configurable per location)
             await SchedulingService.CreateAppointmentAsync(
                 _patientId, _therapistId, _roomId,
-                startDateTime, duration);
+                startDateTime);
 
             Snackbar.Add("Appointment booked.", Severity.Success);
             await OnBooked.InvokeAsync();
