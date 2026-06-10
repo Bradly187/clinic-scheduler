@@ -19,7 +19,9 @@
 <Routes @rendermode="InteractiveServer"/>
 <ReconnectModal/>
 <script src="/_content/MudBlazor/MudBlazor.min.js"></script>
-<script src="_framework/blazor.web.js"></script>
+@* .NET 10 fingerprints the Blazor boot script in published output; resolve the
+   fingerprinted URL via Assets instead of hardcoding the friendly path *@
+<script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>
 
 </html>
