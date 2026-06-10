@@ -38,6 +38,49 @@ public class PatientTests
     }
 
     [Fact]
+    public void SmsConsent_DefaultsToFalse()
+    {
+        var patient = new Patient("John", "Doe", "john@example.com", new DateOnly(1980, 1, 1));
+
+        patient.SmsRemindersConsent.Should().BeFalse();
+        patient.SmsConsentUpdatedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public void SetSmsConsent_Granting_SetsFlagAndTimestamp()
+    {
+        var patient = new Patient("John", "Doe", "john@example.com", new DateOnly(1980, 1, 1));
+
+        patient.SetSmsConsent(true);
+
+        patient.SmsRemindersConsent.Should().BeTrue();
+        patient.SmsConsentUpdatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void SetSmsConsent_Revoking_UpdatesTimestamp()
+    {
+        var patient = new Patient("John", "Doe", "john@example.com", new DateOnly(1980, 1, 1));
+        patient.SetSmsConsent(true);
+        var grantedAt = patient.SmsConsentUpdatedAt;
+
+        patient.SetSmsConsent(false);
+
+        patient.SmsRemindersConsent.Should().BeFalse();
+        patient.SmsConsentUpdatedAt.Should().BeOnOrAfter(grantedAt!.Value);
+    }
+
+    [Fact]
+    public void SetSmsConsent_NoChange_LeavesTimestampUntouched()
+    {
+        var patient = new Patient("John", "Doe", "john@example.com", new DateOnly(1980, 1, 1));
+
+        patient.SetSmsConsent(false);
+
+        patient.SmsConsentUpdatedAt.Should().BeNull();
+    }
+
+    [Fact]
     public async Task UpdateContactInfo_ShouldUpdateEmailAndPhone()
     {
         // Arrange

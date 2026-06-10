@@ -1,0 +1,204 @@
+@page "/security/2fa"
+@attribute [Authorize]
+@using System.Text
+@using Microsoft.AspNetCore.Identity
+@using QRCoder
+@inject UserManager<AppUser> UserManager
+@inject AuthenticationStateProvider AuthState
+@inject ISnackbar Snackbar
+
+<PageTitle>Two-Factor Authentication</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
+    <MudPaper Class="pa-8" Elevation="2">
+        <MudText Typo="Typo.h5" Class="mb-2">Two-Factor Authentication</MudText>
+
+        @if (_loading)
+        {
+            <MudProgressCircular Indeterminate="true" />
+        }
+        else if (_recoveryCodes is not null)
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-4">
+                Two-factor authentication is now enabled.
+            </MudAlert>
+            <MudText Typo="Typo.body1" Class="mb-2"><b>Save these recovery codes somewhere safe.</b></MudText>
+            <MudText Typo="Typo.body2" Class="mb-4" Style="color:#666;">
+                Each code can be used once to sign in if you lose access to your authenticator app.
+                They will not be shown again.
+            </MudText>
+            <MudPaper Class="pa-4 mb-4" Outlined="true" Style="font-family:monospace; font-size:1.1rem;">
+                @foreach (var recoveryCode in _recoveryCodes)
+                {
+                    <div>@recoveryCode</div>
+                }
+            </MudPaper>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => _recoveryCodes = null)">
+                Done
+            </MudButton>
+        }
+        else if (_twoFactorEnabled)
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-4">
+                Two-factor authentication is <b>enabled</b> for your account.
+            </MudAlert>
+            <MudText Typo="Typo.body2" Class="mb-4" Style="color:#666;">
+                You'll be asked for a code from your authenticator app each time you sign in
+                from a new device.
+            </MudText>
+            <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="DisableAsync">
+                Disable two-factor authentication
+            </MudButton>
+        }
+        else if (_sharedKey is null)
+        {
+            <MudText Typo="Typo.body1" Class="mb-4">
+                Two-factor authentication is <b>not enabled</b>. Adding it protects patient data
+                even if your password is compromised.
+            </MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="StartSetupAsync">
+                Set up authenticator app
+            </MudButton>
+        }
+        else
+        {
+            <MudText Typo="Typo.body1" Class="mb-4">
+                <b>1.</b> Scan this QR code with an authenticator app
+                (Google Authenticator, Microsoft Authenticator, 1Password, …):
+            </MudText>
+
+            @if (_qrCodeDataUrl is not null)
+            {
+                <div class="mb-4" style="text-align:center;">
+                    <img src="@_qrCodeDataUrl" alt="Authenticator QR code" width="200" height="200" />
+                </div>
+            }
+
+            <MudText Typo="Typo.body2" Class="mb-1" Style="color:#666;">
+                Or enter this key manually:
+            </MudText>
+            <MudPaper Class="pa-3 mb-4" Outlined="true" Style="font-family:monospace; letter-spacing:0.1em;">
+                @_formattedKey
+            </MudPaper>
+
+            <MudText Typo="Typo.body1" Class="mb-2">
+                <b>2.</b> Enter the 6-digit code the app shows:
+            </MudText>
+
+            @if (_errorMessage is not null)
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-3">@_errorMessage</MudAlert>
+            }
+
+            <MudTextField T="string" @bind-Value="_verificationCode" Label="Verification code"
+                          Variant="Variant.Outlined" Class="mb-4" MaxLength="7" />
+
+            <div class="d-flex gap-2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="VerifyAsync">
+                    Verify and enable
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="@(() => _sharedKey = null)">Cancel</MudButton>
+            </div>
+        }
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private bool _loading = true;
+    private bool _twoFactorEnabled;
+    private string? _sharedKey;
+    private string? _formattedKey;
+    private string? _qrCodeDataUrl;
+    private string _verificationCode = "";
+    private string? _errorMessage;
+    private IEnumerable<string>? _recoveryCodes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await GetCurrentUserAsync();
+        if (user is not null)
+            _twoFactorEnabled = await UserManager.GetTwoFactorEnabledAsync(user);
+        _loading = false;
+    }
+
+    private async Task<AppUser?> GetCurrentUserAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        return await UserManager.GetUserAsync(authState.User);
+    }
+
+    private async Task StartSetupAsync()
+    {
+        var user = await GetCurrentUserAsync();
+        if (user is null) return;
+
+        var key = await UserManager.GetAuthenticatorKeyAsync(user);
+        if (string.IsNullOrEmpty(key))
+        {
+            await UserManager.ResetAuthenticatorKeyAsync(user);
+            key = await UserManager.GetAuthenticatorKeyAsync(user);
+        }
+
+        _sharedKey = key;
+        _formattedKey = FormatKey(key!);
+        _qrCodeDataUrl = BuildQrCodeDataUrl(user.UserName ?? "user", key!);
+        _verificationCode = "";
+        _errorMessage = null;
+    }
+
+    private async Task VerifyAsync()
+    {
+        _errorMessage = null;
+        var user = await GetCurrentUserAsync();
+        if (user is null) return;
+
+        var code = _verificationCode.Replace(" ", string.Empty).Replace("-", string.Empty);
+        var valid = await UserManager.VerifyTwoFactorTokenAsync(
+            user, UserManager.Options.Tokens.AuthenticatorTokenProvider, code);
+
+        if (!valid)
+        {
+            _errorMessage = "That code didn't match. Check the app and try again.";
+            return;
+        }
+
+        await UserManager.SetTwoFactorEnabledAsync(user, true);
+        _recoveryCodes = await UserManager.GenerateNewTwoFactorRecoveryCodesAsync(user, 10);
+        _twoFactorEnabled = true;
+        _sharedKey = null;
+    }
+
+    private async Task DisableAsync()
+    {
+        var user = await GetCurrentUserAsync();
+        if (user is null) return;
+
+        await UserManager.SetTwoFactorEnabledAsync(user, false);
+        await UserManager.ResetAuthenticatorKeyAsync(user);
+        _twoFactorEnabled = false;
+        Snackbar.Add("Two-factor authentication disabled.", Severity.Info);
+    }
+
+    private static string FormatKey(string unformattedKey)
+    {
+        var result = new StringBuilder();
+        for (var i = 0; i < unformattedKey.Length; i += 4)
+        {
+            if (i > 0) result.Append(' ');
+            result.Append(unformattedKey.AsSpan(i, Math.Min(4, unformattedKey.Length - i)));
+        }
+        return result.ToString().ToLowerInvariant();
+    }
+
+    private static string BuildQrCodeDataUrl(string email, string key)
+    {
+        const string issuer = "ClinicScheduler";
+        var uri = $"otpauth://totp/{Uri.EscapeDataString(issuer)}:{Uri.EscapeDataString(email)}" +
+                  $"?secret={key}&issuer={Uri.EscapeDataString(issuer)}&digits=6";
+
+        using var generator = new QRCodeGenerator();
+        using var data = generator.CreateQrCode(uri, QRCodeGenerator.ECCLevel.Q);
+        var png = new PngByteQRCode(data).GetGraphic(pixelsPerModule: 5);
+        return $"data:image/png;base64,{Convert.ToBase64String(png)}";
+    }
+}

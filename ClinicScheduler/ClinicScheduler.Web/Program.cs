@@ -81,6 +81,11 @@ builder.Services.AddScoped<AppointmentNotificationService>();
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
 builder.Services.AddSingleton<IClinicEmailSender, SmtpEmailSender>();
 
+// Outbound SMS via Twilio (no-op until the Sms section is configured)
+builder.Services.Configure<SmsOptions>(builder.Configuration.GetSection(SmsOptions.SectionName));
+builder.Services.AddHttpClient("twilio");
+builder.Services.AddSingleton<ISmsSender, TwilioSmsSender>();
+
 // Background services
 builder.Services.AddHostedService<AppointmentReminderService>();
 builder.Services.AddHostedService<WaitlistProcessingService>();

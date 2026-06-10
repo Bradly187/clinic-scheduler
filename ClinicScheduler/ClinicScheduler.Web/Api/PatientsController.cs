@@ -85,6 +85,7 @@ public class PatientsController : ControllerBase
 
         existing.UpdateDetails(request.FirstName, request.LastName, request.DateOfBirth);
         existing.UpdateContactInfo(request.Email, request.Phone);
+        existing.SetSmsConsent(request.SmsRemindersConsent);
 
         try
         {
@@ -118,6 +119,7 @@ public class PatientsController : ControllerBase
         Email = patient.Email,
         Phone = patient.Phone,
         DateOfBirth = patient.DateOfBirth,
+        SmsRemindersConsent = patient.SmsRemindersConsent,
         CreatedAt = patient.CreatedAt,
         UpdatedAt = patient.UpdatedAt
     };

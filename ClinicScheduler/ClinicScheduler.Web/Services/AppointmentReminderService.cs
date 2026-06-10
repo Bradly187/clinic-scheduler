@@ -39,6 +39,7 @@ public sealed class AppointmentReminderService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ClinicDbContext>();
         var emailSender = scope.ServiceProvider.GetRequiredService<IClinicEmailSender>();
+        var smsSender = scope.ServiceProvider.GetRequiredService<ISmsSender>();
 
         var now = DateTime.UtcNow;
         var windowEnd = now.AddHours(24);
@@ -98,6 +99,21 @@ public sealed class AppointmentReminderService(
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Failed to email reminder for appointment {AppointmentId}", appt.Id);
+                }
+            }
+
+            // SMS only with documented patient consent (TCPA) and a phone on file
+            if (smsSender.IsConfigured
+                && appt.Patient is { SmsRemindersConsent: true }
+                && !string.IsNullOrWhiteSpace(appt.Patient.Phone))
+            {
+                try
+                {
+                    await smsSender.SendAsync(appt.Patient.Phone, reminderText, ct);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to text reminder for appointment {AppointmentId}", appt.Id);
                 }
             }
 

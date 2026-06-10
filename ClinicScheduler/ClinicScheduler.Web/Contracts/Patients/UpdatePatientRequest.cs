@@ -47,4 +47,11 @@ public sealed class UpdatePatientRequest
     /// <example>1990-05-15</example>
     [Required]
     public DateOnly DateOfBirth { get; init; }
+
+    /// <summary>
+    /// Whether the patient consents to receiving SMS reminders. Only set true
+    /// with documented patient consent (TCPA).
+    /// </summary>
+    /// <example>false</example>
+    public bool SmsRemindersConsent { get; init; }
 }
