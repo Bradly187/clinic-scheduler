@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using ClinicScheduler.Web;
 using ClinicScheduler.Core.Services;
 using ClinicScheduler.Web.Components;
@@ -7,7 +8,9 @@ using ClinicScheduler.Web.Services;
 using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 using MudBlazor.Services;
@@ -52,6 +55,16 @@ try
             cfg.WriteTo.Console();
     });
 
+    // Behind the ALB, derive scheme/client IP from X-Forwarded-* headers so HTTPS
+    // detection, secure cookies, and rate-limit partitioning see real values.
+    // The task's security group only admits traffic from the ALB, so the proxy is trusted.
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+
     // Register the Database Context
     var defaultConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
     if (string.IsNullOrWhiteSpace(defaultConnectionString) && !builder.Environment.IsEnvironment("Testing"))
@@ -69,13 +82,31 @@ try
     // Register the repositories
     builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
 
+    // Audit attribution: resolve the acting user from the ambient HTTP context
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddSingleton<ICurrentUserService, HttpContextCurrentUserService>();
+    builder.Services.AddScoped<IAuditLogger, AuditLogger>();
+
     // Register business logic services
     builder.Services.AddScoped<AppointmentSchedulingService>();
     builder.Services.AddScoped<MissedAppointmentService>();
+    builder.Services.AddScoped<TreatmentPlanScheduleService>();
+    builder.Services.AddScoped<WaitlistService>();
+    builder.Services.AddScoped<WaitlistFulfillmentNotifier>();
     builder.Services.AddScoped<AppointmentNotificationService>();
+
+    // Outbound email (no-op until the Email section is configured)
+    builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
+    builder.Services.AddSingleton<IClinicEmailSender, SmtpEmailSender>();
+
+    // Outbound SMS via Twilio (no-op until the Sms section is configured)
+    builder.Services.Configure<SmsOptions>(builder.Configuration.GetSection(SmsOptions.SectionName));
+    builder.Services.AddHttpClient("twilio");
+    builder.Services.AddSingleton<ISmsSender, TwilioSmsSender>();
 
     // Background services
     builder.Services.AddHostedService<AppointmentReminderService>();
+    builder.Services.AddHostedService<WaitlistProcessingService>();
 
     // Health check endpoint — used by load balancers and monitoring tools.
     // Npgsql check only registered when a connection string is available; in the
@@ -107,17 +138,48 @@ try
     .AddEntityFrameworkStores<ClinicDbContext>()
     .AddDefaultTokenProviders();
 
+    // Security:RequireHttps is enabled by the deployment when TLS terminates at the ALB
+    // (set automatically by Terraform when an ACM certificate is configured)
+    var requireHttps = builder.Configuration.GetValue<bool>("Security:RequireHttps");
+
     builder.Services.ConfigureApplicationCookie(options =>
     {
         options.LoginPath = "/login";
         options.AccessDeniedPath = "/login";
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.SecurePolicy = requireHttps
+            ? CookieSecurePolicy.Always
+            : CookieSecurePolicy.SameAsRequest;
     });
 
     builder.Services.AddAuthorization();
 
     builder.Services.AddCascadingAuthenticationState();
+
+    // HSTS: one year, subdomains included (only sent on HTTPS responses outside development)
+    builder.Services.AddHsts(options =>
+    {
+        options.MaxAge = TimeSpan.FromDays(365);
+        options.IncludeSubDomains = true;
+    });
+
+    // Rate limiting: throttle credential-stuffing on the login endpoints per client IP
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.AddPolicy("login", httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 10,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0
+                }));
+    });
 
     // CORS — allow same-origin in production; configure AllowedOrigins in appsettings for external clients
     builder.Services.AddCors(options =>
@@ -186,6 +248,9 @@ try
     builder.Services.AddMudServices();
     var app = builder.Build();
 
+    // Must run first so downstream middleware sees the original scheme and client IP
+    app.UseForwardedHeaders();
+
     // Structured HTTP request logging — replaces the default ASP.NET access log
     app.UseSerilogRequestLogging(opts =>
     {
@@ -202,6 +267,15 @@ try
             diag.Set("RequestHost", http.Request.Host.Value ?? string.Empty);
             diag.Set("UserName", http.User.Identity?.Name ?? "anonymous");
         };
+    });
+
+    // Baseline security headers on every response
+    app.Use(async (context, next) =>
+    {
+        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        context.Response.Headers["X-Frame-Options"] = "DENY";
+        context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+        await next();
     });
 
     // Auto-apply EF migrations on startup (safe to run repeatedly; no-ops when up-to-date)
@@ -265,7 +339,6 @@ try
     else
     {
         app.UseExceptionHandler("/Error", createScopeForErrors: true);
-        // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
         app.UseHsts();
     }
 
@@ -278,6 +351,7 @@ try
     app.UseStaticFiles();
     app.UseBlazorFrameworkFiles();
     app.UseCors("AppPolicy");
+    app.UseRateLimiter();
     app.UseAuthentication();
     app.UseAuthorization();
 
@@ -285,7 +359,12 @@ try
 
     app.MapStaticAssets().AllowAnonymous();
 
-    // Health check — unauthenticated, safe for load balancer probes
+    // Health checks — unauthenticated, safe for load balancer probes.
+    // /health/live answers without touching dependencies; /health includes the DB check.
+    app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+    {
+        Predicate = _ => false
+    }).AllowAnonymous();
     app.MapHealthChecks("/health").AllowAnonymous();
 
     // Map API endpoints

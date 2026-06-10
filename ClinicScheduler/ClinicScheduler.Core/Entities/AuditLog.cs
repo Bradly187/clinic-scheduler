@@ -4,7 +4,8 @@ public enum AuditAction
 {
     Created,
     Modified,
-    Deleted
+    Deleted,
+    Accessed
 }
 
 public class AuditLog

@@ -46,9 +46,15 @@ public class AppointmentNotificationTests
     }
 
     [Fact]
-    public void NotificationType_HasExactly11Values()
+    public void NotificationType_WaitlistFulfilled_HasOrdinal11()
     {
-        Enum.GetValues<NotificationType>().Should().HaveCount(11);
+        ((int)NotificationType.WaitlistFulfilled).Should().Be(11);
+    }
+
+    [Fact]
+    public void NotificationType_HasExactly12Values()
+    {
+        Enum.GetValues<NotificationType>().Should().HaveCount(12);
     }
 
     // ---------------------------------------------------------------

@@ -15,11 +15,10 @@ public class AppointmentSchedulingServiceTests
     private readonly Mock<IRepository<Room>> _roomRepo = new();
     private readonly Mock<IRepository<TimeSlot>> _timeSlotRepo = new();
     private readonly Mock<IRepository<Location>> _locationRepo = new();
-    private readonly Mock<IRepository<ScheduleConflict>> _scheduleConflictRepo = new();
 
     private AppointmentSchedulingService CreateService() =>
         new(_appointmentRepo.Object, _patientRepo.Object, _therapistRepo.Object, _roomRepo.Object,
-            _timeSlotRepo.Object, _locationRepo.Object, _scheduleConflictRepo.Object);
+            _timeSlotRepo.Object, _locationRepo.Object);
 
     private static Patient MakePatient() =>
         new("John", "Doe", "john@example.com", new DateOnly(1985, 1, 1));
@@ -58,10 +57,6 @@ public class AppointmentSchedulingServiceTests
         _roomRepo
             .Setup(r => r.FindAsync(It.IsAny<Expression<Func<Room, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Room> { room });
-
-        _scheduleConflictRepo
-            .Setup(r => r.AddAsync(It.IsAny<ScheduleConflict>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((ScheduleConflict sc, CancellationToken _) => sc);
     }
 
     // Next Monday at 9:00 AM — a guaranteed valid weekday business-hours slot

@@ -66,6 +66,12 @@ namespace ClinicScheduler.Infrastructure.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("PatientId")
@@ -227,6 +233,11 @@ namespace ClinicScheduler.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("SlotDurationMinutes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(30);
+
                     b.Property<string>("State")
                         .HasColumnType("text");
 
@@ -241,7 +252,10 @@ namespace ClinicScheduler.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Locations");
+                    b.ToTable("Locations", t =>
+                        {
+                            t.HasCheckConstraint("CK_Location_SlotDuration", "\"SlotDurationMinutes\" BETWEEN 5 AND 240");
+                        });
                 });
 
             modelBuilder.Entity("ClinicScheduler.Core.Entities.Notification", b =>
@@ -323,8 +337,20 @@ namespace ClinicScheduler.Infrastructure.Migrations
                     b.Property<string>("Phone")
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("SmsConsentUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("SmsRemindersConsent")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -433,6 +459,12 @@ namespace ClinicScheduler.Infrastructure.Migrations
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -546,6 +578,12 @@ namespace ClinicScheduler.Infrastructure.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("PatientId")
@@ -578,6 +616,63 @@ namespace ClinicScheduler.Infrastructure.Migrations
                     b.HasIndex("TherapyTypeId");
 
                     b.ToTable("TreatmentPlanTherapies");
+                });
+
+            modelBuilder.Entity("ClinicScheduler.Core.Entities.WaitlistEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("EarliestDate")
+                        .HasColumnType("date");
+
+                    b.Property<int?>("FulfilledAppointmentId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("LatestDate")
+                        .HasColumnType("date");
+
+                    b.Property<int?>("LocationId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
+                    b.Property<int>("PatientId")
+                        .HasColumnType("integer");
+
+                    b.Property<TimeOnly?>("PreferredTimeFrom")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<TimeOnly?>("PreferredTimeTo")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("TherapistId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FulfilledAppointmentId");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("PatientId");
+
+                    b.HasIndex("TherapistId");
+
+                    b.ToTable("WaitlistEntries");
                 });
 
             modelBuilder.Entity("ClinicScheduler.Infrastructure.Data.AppUser", b =>
@@ -930,6 +1025,38 @@ namespace ClinicScheduler.Infrastructure.Migrations
                     b.Navigation("TherapyType");
 
                     b.Navigation("TreatmentPlan");
+                });
+
+            modelBuilder.Entity("ClinicScheduler.Core.Entities.WaitlistEntry", b =>
+                {
+                    b.HasOne("ClinicScheduler.Core.Entities.Appointment", "FulfilledAppointment")
+                        .WithMany()
+                        .HasForeignKey("FulfilledAppointmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("ClinicScheduler.Core.Entities.Location", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("ClinicScheduler.Core.Entities.Patient", "Patient")
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ClinicScheduler.Core.Entities.Therapist", "Therapist")
+                        .WithMany()
+                        .HasForeignKey("TherapistId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("FulfilledAppointment");
+
+                    b.Navigation("Location");
+
+                    b.Navigation("Patient");
+
+                    b.Navigation("Therapist");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>

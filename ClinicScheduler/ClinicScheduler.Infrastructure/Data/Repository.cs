@@ -24,6 +24,16 @@ public class Repository<T> : IRepository<T> where T : class
     public async Task<IReadOnlyList<T>> GetAllAsync(CancellationToken ct = default)
         => await _dbSet.AsNoTracking().ToListAsync(ct);
 
+    public async Task<IReadOnlyList<T>> GetPagedAsync(int skip, int take, CancellationToken ct = default)
+        => await _dbSet.AsNoTracking()
+            .OrderBy(e => EF.Property<int>(e, "Id"))
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(ct);
+
+    public async Task<int> CountAsync(CancellationToken ct = default)
+        => await _dbSet.CountAsync(ct);
+
     public async Task<IReadOnlyList<T>> FindAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default)
         => await _dbSet.AsNoTracking().Where(predicate).ToListAsync(ct);
 

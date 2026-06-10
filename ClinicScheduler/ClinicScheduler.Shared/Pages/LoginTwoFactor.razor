@@ -1,0 +1,63 @@
+@page "/login/2fa"
+@attribute [AllowAnonymous]
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-16">
+    <MudPaper Class="pa-8" Elevation="4">
+        <MudText Typo="Typo.h5" Class="mb-2">Two-Factor Verification</MudText>
+        <MudText Typo="Typo.body2" Class="mb-6" Style="color:#666;">
+            Enter the 6-digit code from your authenticator app, or one of your recovery codes.
+        </MudText>
+
+        @if (_errorMessage is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-4">@_errorMessage</MudAlert>
+        }
+
+        <form method="post" action="/account/login-2fa">
+            <AntiforgeryToken />
+            <input type="hidden" name="returnUrl" value="@(ReturnUrl ?? "/")" />
+
+            <div class="mb-4">
+                <label for="code" style="display:block; margin-bottom:4px; font-size:0.875rem; color:#666;">Verification code</label>
+                <input type="text" id="code" name="code" required autofocus
+                       autocomplete="one-time-code" inputmode="numeric"
+                       placeholder="123456"
+                       style="width:100%; padding:12px; border:1px solid #ccc; border-radius:4px; font-size:1.25rem; letter-spacing:0.25em; outline:none; box-shadow:none;" />
+            </div>
+
+            <div class="mb-6" style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="rememberMachine" name="rememberMachine" value="true" />
+                <label for="rememberMachine" style="font-size:0.875rem; color:#666;">Remember this device for 14 days</label>
+            </div>
+
+            <button type="submit"
+                    class="mud-button-root mud-button mud-button-filled mud-button-filled-primary mud-ripple mud-button-filled-size-medium"
+                    style="width:100%">
+                <span class="mud-button-label">Verify</span>
+            </button>
+        </form>
+
+        <MudText Typo="Typo.body2" Align="Align.Center" Class="mt-4">
+            <MudLink Href="/login">Back to sign in</MudLink>
+        </MudText>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string? _errorMessage;
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    private string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")]
+    private string? Error { get; set; }
+
+    protected override void OnInitialized()
+    {
+        _errorMessage = Error switch
+        {
+            "1" => "Invalid verification code. Try again, or use a recovery code.",
+            _ => null
+        };
+    }
+}

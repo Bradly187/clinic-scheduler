@@ -14,6 +14,15 @@ public class Patient
     public DateOnly DateOfBirth { get; private set; }
     public string? Notes { get; private set; }
 
+    /// <summary>
+    /// Whether the patient has consented to receiving SMS reminders (TCPA).
+    /// Off by default; only set true with documented patient consent.
+    /// </summary>
+    public bool SmsRemindersConsent { get; private set; }
+
+    /// <summary>When SMS consent was last granted or revoked, for the consent audit trail.</summary>
+    public DateTime? SmsConsentUpdatedAt { get; private set; }
+
     public string FullName => $"{FirstName} {LastName}";
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -59,6 +68,15 @@ public class Patient
     public void UpdateNotes(string? notes)
     {
         Notes = notes;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Grants or revokes consent to SMS reminders, stamping the change time.</summary>
+    public void SetSmsConsent(bool consent)
+    {
+        if (SmsRemindersConsent == consent) return;
+        SmsRemindersConsent = consent;
+        SmsConsentUpdatedAt = DateTime.UtcNow;
         UpdatedAt = DateTime.UtcNow;
     }
 }

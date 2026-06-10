@@ -359,9 +359,10 @@
                 ? _allTherapyTypes.FirstOrDefault(tt => tt.Id == _newTherapyTypeId.Value)
                 : null;
 
+            // Duration comes from the room's location (configurable per location)
             await SchedulingService.CreateAppointmentAsync(
                 _newPatientId, _newTherapistId, _newRoomId,
-                _selectedSlotStart, TimeSpan.FromMinutes(30),
+                _selectedSlotStart,
                 therapyType: therapyType);
 
             _createDialogOpen = false;

@@ -1,5 +1,7 @@
 using ClinicScheduler.Core.Entities;
+using ClinicScheduler.Core.Services;
 using ClinicScheduler.Infrastructure.Data;
+using ClinicScheduler.Web.Contracts.Appointments;
 using ClinicScheduler.Web.Contracts.TreatmentPlans;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,26 +16,91 @@ namespace ClinicScheduler.Web.Api;
 public class TreatmentPlansController : ControllerBase
 {
     private readonly ClinicDbContext _dbContext;
+    private readonly TreatmentPlanScheduleService _scheduleService;
 
     /// <summary>Initializes a new instance of <see cref="TreatmentPlansController"/>.</summary>
-    public TreatmentPlansController(ClinicDbContext dbContext)
+    public TreatmentPlansController(ClinicDbContext dbContext, TreatmentPlanScheduleService scheduleService)
     {
         _dbContext = dbContext;
+        _scheduleService = scheduleService;
     }
 
-    /// <summary>Returns all treatment plans with their associated therapies.</summary>
-    [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<TreatmentPlanDto>>> GetAll(CancellationToken ct)
+    /// <summary>
+    /// Generates the plan's recurring appointment series: books the remaining sessions
+    /// (TotalDays minus those already booked) at FrequencyPerWeek sessions per week,
+    /// preferring the requested days and time. Returns the booked appointments along
+    /// with a count of any sessions that could not be placed.
+    /// </summary>
+    [HttpPost("{id:int}/generate-appointments")]
+    public async Task<ActionResult<GenerateAppointmentsResponse>> GenerateAppointments(
+        int id, GenerateAppointmentsRequest request, CancellationToken ct)
     {
-        var plans = await _dbContext.TreatmentPlans
+        try
+        {
+            var result = await _scheduleService.GenerateAppointmentsAsync(
+                id, request.RoomId, request.PreferredTime, request.PreferredDays, ct);
+
+            return Ok(new GenerateAppointmentsResponse
+            {
+                SessionsRequested = result.SessionsRequested,
+                SessionsBooked = result.SessionsBooked,
+                SessionsUnbooked = result.SessionsUnbooked,
+                Appointments = result.Created.Select(MapAppointmentToDto).ToList()
+            });
+        }
+        catch (ArgumentException ex) when (ex.ParamName == "treatmentPlanId")
+        {
+            return NotFound(ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new ProblemDetails { Detail = ex.Message });
+        }
+    }
+
+    private static AppointmentDto MapAppointmentToDto(Appointment appointment) => new()
+    {
+        Id = appointment.Id,
+        PatientId = appointment.PatientId,
+        PatientName = appointment.Patient.FullName,
+        TherapistId = appointment.TherapistId,
+        TherapistName = appointment.Therapist.FullName,
+        RoomId = appointment.RoomId,
+        RoomName = appointment.Room.Name,
+        TreatmentPlanId = appointment.TreatmentPlanId,
+        StartTime = appointment.StartTime,
+        EndTime = appointment.EndTime,
+        Status = appointment.Status,
+        HasConflict = appointment.HasConflict,
+        Notes = appointment.Notes,
+        CreatedAt = appointment.CreatedAt,
+        UpdatedAt = appointment.UpdatedAt
+    };
+
+    /// <summary>Returns all treatment plans with their associated therapies, optionally paged via <paramref name="page"/>/<paramref name="pageSize"/>.</summary>
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<TreatmentPlanDto>>> GetAll(
+        CancellationToken ct, [FromQuery] int? page = null, [FromQuery] int? pageSize = null)
+    {
+        IQueryable<TreatmentPlan> query = _dbContext.TreatmentPlans
             .AsNoTracking()
             .Include(x => x.Patient)
             .Include(x => x.Therapist)
             .Include(x => x.TreatmentPlanTherapies)
                 .ThenInclude(x => x.TherapyType)
-            .OrderByDescending(x => x.CreatedAt)
-            .ToListAsync(ct);
+            .OrderByDescending(x => x.CreatedAt);
 
+        if (Paging.Normalize(page, pageSize) is { } paging)
+        {
+            Response.Headers[Paging.TotalCountHeader] = (await query.CountAsync(ct)).ToString();
+            query = query.Skip(paging.Skip).Take(paging.Take);
+        }
+
+        var plans = await query.ToListAsync(ct);
         return Ok(plans.Select(static x => MapToDto(x)).ToList());
     }
 
@@ -145,7 +212,15 @@ public class TreatmentPlansController : ControllerBase
                 existing.AddTherapy(therapyType);
         }
 
-        await _dbContext.SaveChangesAsync(ct);
+        try
+        {
+            await _dbContext.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(new ProblemDetails { Detail = "The treatment plan was modified by another user. Reload and try again." });
+        }
+
         return NoContent();
     }
 

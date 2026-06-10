@@ -1,5 +1,6 @@
 using System.Text;
 using ClinicScheduler.Core.Entities;
+using ClinicScheduler.Core.Interfaces;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -14,11 +15,16 @@ namespace ClinicScheduler.Infrastructure.Data;
 /// </summary>
 public class ClinicDbContext : IdentityDbContext<AppUser>
 {
+    private readonly ICurrentUserService? _currentUser;
     private readonly ILogger<ClinicDbContext>? _logger;
 
-    public ClinicDbContext(DbContextOptions<ClinicDbContext> options, ILogger<ClinicDbContext>? logger = null)
+    public ClinicDbContext(
+        DbContextOptions<ClinicDbContext> options,
+        ICurrentUserService? currentUser = null,
+        ILogger<ClinicDbContext>? logger = null)
         : base(options)
     {
+        _currentUser = currentUser;
         _logger = logger;
     }
 
@@ -36,6 +42,7 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
     public DbSet<CancelAppointmentRequest> CancelAppointmentRequests => Set<CancelAppointmentRequest>();
     public DbSet<TimeSlot> TimeSlots => Set<TimeSlot>();
     public DbSet<ScheduleConflict> ScheduleConflicts => Set<ScheduleConflict>();
+    public DbSet<WaitlistEntry> WaitlistEntries => Set<WaitlistEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -73,11 +80,47 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
             .HasForeignKey(ts => ts.LocationId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        modelBuilder.Entity<Location>()
+            .Property(l => l.SlotDurationMinutes)
+            .HasDefaultValue(Location.DefaultSlotDurationMinutes);
+
+        modelBuilder.Entity<Location>()
+            .ToTable(t => t.HasCheckConstraint(
+                "CK_Location_SlotDuration",
+                $"\"SlotDurationMinutes\" BETWEEN {Location.MinSlotDurationMinutes} AND {Location.MaxSlotDurationMinutes}"));
+
         modelBuilder.Entity<Appointment>()
             .HasMany(a => a.ScheduleConflicts)
             .WithOne(sc => sc.Appointment)
             .HasForeignKey(sc => sc.AppointmentId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Waitlist: keep entries when optional preferences or the fulfilling
+        // appointment are deleted; only the patient cascade removes entries
+        modelBuilder.Entity<WaitlistEntry>()
+            .HasOne(w => w.Therapist)
+            .WithMany()
+            .HasForeignKey(w => w.TherapistId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<WaitlistEntry>()
+            .HasOne(w => w.Location)
+            .WithMany()
+            .HasForeignKey(w => w.LocationId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<WaitlistEntry>()
+            .HasOne(w => w.FulfilledAppointment)
+            .WithMany()
+            .HasForeignKey(w => w.FulfilledAppointmentId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // Optimistic concurrency: PostgreSQL's xmin system column detects when two
+        // users edit the same record; the second save throws DbUpdateConcurrencyException
+        modelBuilder.Entity<Appointment>().Property<uint>("xmin").IsRowVersion();
+        modelBuilder.Entity<Patient>().Property<uint>("xmin").IsRowVersion();
+        modelBuilder.Entity<Therapist>().Property<uint>("xmin").IsRowVersion();
+        modelBuilder.Entity<TreatmentPlan>().Property<uint>("xmin").IsRowVersion();
 
         // Indexes for common query patterns — FK columns and time-range filters
         modelBuilder.Entity<Appointment>()
@@ -187,8 +230,9 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
                 _ => throw new InvalidOperationException()
             };
             var changeSummary = BuildChangeSummary(entry);
+            var userId = _currentUser?.UserId ?? _currentUser?.UserName;
 
-            var auditLog = new AuditLog(entityName, entityId, action, changeSummary);
+            var auditLog = new AuditLog(entityName, entityId, action, changeSummary, userId);
             AuditLogs.Add(auditLog);
         }
     }

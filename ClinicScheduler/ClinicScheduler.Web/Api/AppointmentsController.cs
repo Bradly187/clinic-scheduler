@@ -18,30 +18,82 @@ public class AppointmentsController : ControllerBase
     private readonly AppointmentSchedulingService _schedulingService;
     private readonly MissedAppointmentService _missedAppointmentService;
     private readonly AppointmentNotificationService _notificationService;
+    private readonly WaitlistService _waitlistService;
+    private readonly WaitlistFulfillmentNotifier _waitlistNotifier;
 
     public AppointmentsController(
         ClinicDbContext dbContext,
         AppointmentSchedulingService schedulingService,
         MissedAppointmentService missedAppointmentService,
-        AppointmentNotificationService notificationService)
+        AppointmentNotificationService notificationService,
+        WaitlistService waitlistService,
+        WaitlistFulfillmentNotifier waitlistNotifier)
     {
         _dbContext = dbContext;
         _schedulingService = schedulingService;
         _missedAppointmentService = missedAppointmentService;
         _notificationService = notificationService;
+        _waitlistService = waitlistService;
+        _waitlistNotifier = waitlistNotifier;
     }
 
-    [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<AppointmentDto>>> GetAll(CancellationToken ct)
+    /// <summary>
+    /// Offers a freed slot to the waitlist. Best-effort: a failure here must not
+    /// fail the cancellation that freed the slot.
+    /// </summary>
+    private async Task OfferFreedSlotToWaitlistAsync(int roomId, int therapistId, DateTime slotStart, CancellationToken ct)
     {
-        var appointments = await _dbContext.Appointments
+        try
+        {
+            var fulfillment = await _waitlistService.TryFulfillFreedSlotAsync(roomId, therapistId, slotStart, ct);
+            if (fulfillment is not null)
+                await _waitlistNotifier.NotifyAsync([fulfillment], ct);
+        }
+        catch (Exception)
+        {
+            // The background sweep will retry matching entries on its next pass
+        }
+    }
+
+    /// <summary>
+    /// Returns appointments, optionally filtered to a date range (<paramref name="from"/>/<paramref name="to"/>)
+    /// and paged via <paramref name="page"/>/<paramref name="pageSize"/>.
+    /// </summary>
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<AppointmentDto>>> GetAll(
+        CancellationToken ct,
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null)
+    {
+        IQueryable<Appointment> query = _dbContext.Appointments
             .AsNoTracking()
             .Include(x => x.Patient)
             .Include(x => x.Therapist)
-            .Include(x => x.Room)
-            .OrderBy(x => x.StartTime)
-            .ToListAsync(ct);
+            .Include(x => x.Room);
 
+        if (from is not null)
+        {
+            var fromUtc = Paging.AsUtc(from.Value);
+            query = query.Where(x => x.EndTime >= fromUtc);
+        }
+
+        if (to is not null)
+        {
+            var toUtc = Paging.AsUtc(to.Value);
+            query = query.Where(x => x.StartTime < toUtc);
+        }
+
+        query = query.OrderBy(x => x.StartTime);
+
+        if (Paging.Normalize(page, pageSize) is { } paging)
+        {
+            Response.Headers[Paging.TotalCountHeader] = (await query.CountAsync(ct)).ToString();
+            query = query.Skip(paging.Skip).Take(paging.Take);
+        }
+
+        var appointments = await query.ToListAsync(ct);
         return Ok(appointments.Select(static x => MapToDto(x)).ToList());
     }
 
@@ -142,7 +194,14 @@ public class AppointmentsController : ControllerBase
         existing.TreatmentPlanId = request.TreatmentPlanId;
         existing.Notes = request.Notes;
 
-        await _dbContext.SaveChangesAsync(ct);
+        try
+        {
+            await _dbContext.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(new ProblemDetails { Detail = "The appointment was modified by another user. Reload and try again." });
+        }
 
         // Send appropriate notification after successful save
         var timeChanged = originalStartTime != existing.StartTime;
@@ -169,6 +228,9 @@ public class AppointmentsController : ControllerBase
                 .FirstAsync(x => x.Id == existing.Id, ct);
 
             await _notificationService.NotifyAppointmentCancelledAsync(loaded, ct);
+
+            // The canceled slot is now free — offer it to the waitlist
+            await OfferFreedSlotToWaitlistAsync(existing.RoomId, existing.TherapistId, existing.StartTime, ct);
         }
         else
         {
@@ -245,8 +307,14 @@ public class AppointmentsController : ControllerBase
         var appointment = await _dbContext.Appointments.FirstOrDefaultAsync(x => x.Id == id, ct);
         if (appointment is null) return NotFound();
 
+        var (roomId, therapistId, startTime) = (appointment.RoomId, appointment.TherapistId, appointment.StartTime);
+
         _dbContext.Appointments.Remove(appointment);
         await _dbContext.SaveChangesAsync(ct);
+
+        // The deleted slot is now free — offer it to the waitlist
+        await OfferFreedSlotToWaitlistAsync(roomId, therapistId, startTime, ct);
+
         return NoContent();
     }
 

@@ -336,12 +336,12 @@
             // Use the first available room
             var roomId = (await RoomRepo.GetAllAsync()).FirstOrDefault()?.Id ?? 0;
 
+            // Duration comes from the room's location (configurable per location)
             var appt = await SchedulingService.CreateAppointmentAsync(
                 request.PatientId,
                 therapistId,
                 roomId,
-                request.PreferredDateTime,
-                TimeSpan.FromMinutes(30));
+                request.PreferredDateTime);
 
             await using var db = await DbFactory.CreateDbContextAsync();
             var tracked = await db.AppointmentRequests.FindAsync(request.Id);

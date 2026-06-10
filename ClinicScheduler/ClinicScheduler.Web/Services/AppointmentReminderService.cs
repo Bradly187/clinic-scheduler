@@ -38,6 +38,8 @@ public sealed class AppointmentReminderService(
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ClinicDbContext>();
+        var emailSender = scope.ServiceProvider.GetRequiredService<IClinicEmailSender>();
+        var smsSender = scope.ServiceProvider.GetRequiredService<ISmsSender>();
 
         var now = DateTime.UtcNow;
         var windowEnd = now.AddHours(24);
@@ -72,13 +74,48 @@ public sealed class AppointmentReminderService(
             if (user is null) continue;
 
             var localTime = appt.StartTime.ToLocalTime();
+            var reminderText =
+                $"You have an appointment with {appt.Therapist?.FullName} on " +
+                $"{localTime:ddd, MMM d} at {localTime:h:mm tt}.";
+
             db.Notifications.Add(new Notification(
                 user.Id,
                 NotificationType.UpcomingAppointment,
                 "Upcoming Appointment Reminder",
-                $"You have an appointment with {appt.Therapist?.FullName} on " +
-                $"{localTime:ddd, MMM d} at {localTime:h:mm tt}.",
+                reminderText,
                 appt.Id));
+
+            // Email is best-effort: a relay outage must not block in-app reminders
+            if (emailSender.IsConfigured && !string.IsNullOrWhiteSpace(appt.Patient?.Email))
+            {
+                try
+                {
+                    await emailSender.SendAsync(
+                        appt.Patient.Email,
+                        "Upcoming Appointment Reminder",
+                        reminderText,
+                        ct);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to email reminder for appointment {AppointmentId}", appt.Id);
+                }
+            }
+
+            // SMS only with documented patient consent (TCPA) and a phone on file
+            if (smsSender.IsConfigured
+                && appt.Patient is { SmsRemindersConsent: true }
+                && !string.IsNullOrWhiteSpace(appt.Patient.Phone))
+            {
+                try
+                {
+                    await smsSender.SendAsync(appt.Patient.Phone, reminderText, ct);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to text reminder for appointment {AppointmentId}", appt.Id);
+                }
+            }
 
             sent++;
         }

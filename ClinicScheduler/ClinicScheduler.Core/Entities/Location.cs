@@ -25,6 +25,25 @@ public class Location
     /// </summary>
     public int DailyCapacity { get; private set; } = 12;
 
+    /// <summary>
+    /// Length of one appointment slot at this location, in minutes. Defaults to 30.
+    /// Appointments must be exactly this long and start on a slot boundary measured
+    /// from the start of the location's operating window.
+    /// </summary>
+    public int SlotDurationMinutes { get; private set; } = DefaultSlotDurationMinutes;
+
+    /// <summary>Default slot length applied to new locations.</summary>
+    public const int DefaultSlotDurationMinutes = 30;
+
+    /// <summary>Shortest slot length a location may configure, in minutes.</summary>
+    public const int MinSlotDurationMinutes = 5;
+
+    /// <summary>Longest slot length a location may configure, in minutes.</summary>
+    public const int MaxSlotDurationMinutes = 240;
+
+    /// <summary><see cref="SlotDurationMinutes"/> as a <see cref="TimeSpan"/>.</summary>
+    public TimeSpan SlotDuration => TimeSpan.FromMinutes(SlotDurationMinutes);
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
@@ -67,6 +86,23 @@ public class Location
         State = state;
         ZipCode = zipCode;
         TimeZone = timeZone;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Sets the appointment slot length for this location.
+    /// </summary>
+    /// <param name="minutes">Slot length in minutes, between <see cref="MinSlotDurationMinutes"/> and <see cref="MaxSlotDurationMinutes"/>.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="minutes"/> is outside the allowed range.</exception>
+    public void SetSlotDuration(int minutes)
+    {
+        if (minutes is < MinSlotDurationMinutes or > MaxSlotDurationMinutes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(minutes),
+                $"Slot duration must be between {MinSlotDurationMinutes} and {MaxSlotDurationMinutes} minutes.");
+        }
+
+        SlotDurationMinutes = minutes;
         UpdatedAt = DateTime.UtcNow;
     }
 

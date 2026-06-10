@@ -4,6 +4,8 @@
 @inject IRepository<Patient> PatientRepo
 @inject IRepository<Therapist> TherapistRepo
 @inject IRepository<TherapyType> TherapyTypeRepo
+@inject IRepository<Room> RoomRepo
+@inject TreatmentPlanScheduleService ScheduleService
 @inject ISnackbar Snackbar
 
 <PageTitle>Treatment Plans</PageTitle>
@@ -59,6 +61,10 @@
             <CellTemplate>
                 @if (context.Item.Status == TreatmentPlanStatus.Active)
                 {
+                    <MudIconButton Icon="@Icons.Material.Filled.EventRepeat" Size="Size.Small"
+                                   Color="Color.Primary"
+                                   aria-label="Generate appointments"
+                                   OnClick="@(() => OpenGenerateDialog(context.Item))" />
                     <MudIconButton Icon="@Icons.Material.Filled.Pause" Size="Size.Small"
                                    Color="Color.Warning"
                                    aria-label="Suspend plan"
@@ -150,6 +156,42 @@
     </DialogActions>
 </MudDialog>
 
+<MudDialog @bind-Visible="_generateDialogOpen" Options="_dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">Generate Appointments</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_generateTarget is not null)
+        {
+            <MudText Class="mb-3">
+                Books the remaining sessions for <b>@_generateTarget.Patient?.FullName</b> —
+                @_generateTarget.FrequencyPerWeek sessions/week, @_generateTarget.TotalDays total —
+                each at the nearest available slot to the preferred time.
+            </MudText>
+        }
+        @if (_generateError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@_generateError</MudAlert>
+        }
+        <MudSelect T="int" @bind-Value="_generateRoomId" Label="Room" Required="true"
+                   Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var r in _allRooms)
+            {
+                <MudSelectItem T="int" Value="@r.Id">@r.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTimePicker @bind-Time="_generateTime" Label="Preferred time"
+                       Variant="Variant.Outlined" Class="mb-3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _generateDialogOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@_generating" OnClick="GenerateAsync">
+            @(_generating ? "Generating…" : "Generate")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
 @code {
     private List<TreatmentPlan> _plans = [];
     private List<Patient> _allPatients = [];
@@ -167,6 +209,14 @@
     private IEnumerable<int> _formTherapyTypeIds = [];
     private string? _errorMessage;
 
+    private List<Room> _allRooms = [];
+    private bool _generateDialogOpen;
+    private bool _generating;
+    private TreatmentPlan? _generateTarget;
+    private int _generateRoomId;
+    private TimeSpan? _generateTime = new(9, 0, 0);
+    private string? _generateError;
+
     private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
 
     protected override async Task OnInitializedAsync()
@@ -177,6 +227,7 @@
                 && !t.Specialty.Contains("admin", StringComparison.OrdinalIgnoreCase))
             .ToList();
         _allTherapyTypes = (await TherapyTypeRepo.GetAllAsync()).ToList();
+        _allRooms = (await RoomRepo.GetAllAsync()).ToList();
         if (_allPatients.Count > 0) _formPatientId = _allPatients[0].Id;
         if (_allTherapists.Count > 0) _formTherapistId = _allTherapists[0].Id;
         await LoadPlansAsync();
@@ -208,6 +259,41 @@
         _formTherapyTypeIds = [];
         _errorMessage = null;
         _dialogOpen = true;
+    }
+
+    private void OpenGenerateDialog(TreatmentPlan plan)
+    {
+        _generateTarget = plan;
+        _generateRoomId = _allRooms.Count > 0 ? _allRooms[0].Id : 0;
+        _generateTime = new TimeSpan(9, 0, 0);
+        _generateError = null;
+        _generateDialogOpen = true;
+    }
+
+    private async Task GenerateAsync()
+    {
+        if (_generateTarget is null) return;
+        if (_generateRoomId == 0) { _generateError = "Please select a room."; return; }
+
+        _generateError = null;
+        _generating = true;
+        try
+        {
+            var preferred = TimeOnly.FromTimeSpan(_generateTime ?? new TimeSpan(9, 0, 0));
+            var result = await ScheduleService.GenerateAppointmentsAsync(
+                _generateTarget.Id, _generateRoomId, preferred);
+
+            _generateDialogOpen = false;
+            if (result.SessionsUnbooked > 0)
+                Snackbar.Add(
+                    $"Booked {result.SessionsBooked} of {result.SessionsRequested} sessions — {result.SessionsUnbooked} could not be placed.",
+                    Severity.Warning);
+            else
+                Snackbar.Add($"Booked all {result.SessionsBooked} sessions.", Severity.Success);
+        }
+        catch (InvalidOperationException ex) { _generateError = ex.Message; }
+        catch (ArgumentException ex)         { _generateError = ex.Message; }
+        finally { _generating = false; }
     }
 
     private void OpenEditDialog(TreatmentPlan plan)

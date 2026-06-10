@@ -22,11 +22,22 @@ public class RoomsController : ControllerBase
         _locationRepository = locationRepository;
     }
 
-    /// <summary>Returns all rooms across all locations.</summary>
+    /// <summary>Returns all rooms across all locations, optionally paged via <paramref name="page"/>/<paramref name="pageSize"/>.</summary>
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<RoomDto>>> GetAll(CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<RoomDto>>> GetAll(
+        CancellationToken ct, [FromQuery] int? page = null, [FromQuery] int? pageSize = null)
     {
-        var rooms = await _roomRepository.GetAllAsync(ct);
+        IReadOnlyList<Room> rooms;
+        if (Paging.Normalize(page, pageSize) is { } paging)
+        {
+            Response.Headers[Paging.TotalCountHeader] = (await _roomRepository.CountAsync(ct)).ToString();
+            rooms = await _roomRepository.GetPagedAsync(paging.Skip, paging.Take, ct);
+        }
+        else
+        {
+            rooms = await _roomRepository.GetAllAsync(ct);
+        }
+
         var locations = await _locationRepository.GetAllAsync(ct);
         var locationNames = locations.ToDictionary(x => x.Id, x => x.Name);
 

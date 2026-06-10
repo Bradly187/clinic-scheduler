@@ -3,6 +3,7 @@ using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Web.Contracts.Therapists;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace ClinicScheduler.Web.Api;
 
@@ -20,11 +21,19 @@ public class TherapistsController : ControllerBase
         _repository = repository;
     }
 
-    /// <summary>Returns all therapists.</summary>
+    /// <summary>Returns all therapists, optionally paged via <paramref name="page"/>/<paramref name="pageSize"/>.</summary>
     [HttpGet]
     [Authorize(Roles = RoleNames.StaffOrAbove)]
-    public async Task<ActionResult<IReadOnlyList<TherapistDto>>> GetAll(CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<TherapistDto>>> GetAll(
+        CancellationToken ct, [FromQuery] int? page = null, [FromQuery] int? pageSize = null)
     {
+        if (Paging.Normalize(page, pageSize) is { } paging)
+        {
+            Response.Headers[Paging.TotalCountHeader] = (await _repository.CountAsync(ct)).ToString();
+            var paged = await _repository.GetPagedAsync(paging.Skip, paging.Take, ct);
+            return Ok(paged.Select(static t => MapToDto(t)).ToList());
+        }
+
         var therapists = await _repository.GetAllAsync(ct);
         return Ok(therapists.Select(static t => MapToDto(t)).ToList());
     }
@@ -59,7 +68,15 @@ public class TherapistsController : ControllerBase
         existing.UpdateDetails(request.FirstName, request.LastName, request.Specialty);
         existing.UpdateContactInfo(request.Email, request.Phone);
 
-        await _repository.UpdateAsync(existing, ct);
+        try
+        {
+            await _repository.UpdateAsync(existing, ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(new ProblemDetails { Detail = "The record was modified by another user. Reload and try again." });
+        }
+
         return NoContent();
     }
 

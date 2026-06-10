@@ -3,6 +3,7 @@ using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Web.Contracts.Patients;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace ClinicScheduler.Web.Api;
 
@@ -13,18 +14,28 @@ namespace ClinicScheduler.Web.Api;
 public class PatientsController : ControllerBase
 {
     private readonly IRepository<Patient> _repository;
+    private readonly IAuditLogger _auditLogger;
 
     /// <summary>Initializes a new instance of <see cref="PatientsController"/>.</summary>
-    public PatientsController(IRepository<Patient> repository)
+    public PatientsController(IRepository<Patient> repository, IAuditLogger auditLogger)
     {
         _repository = repository;
+        _auditLogger = auditLogger;
     }
 
-    /// <summary>Returns all patients.</summary>
+    /// <summary>Returns all patients, optionally paged via <paramref name="page"/>/<paramref name="pageSize"/>.</summary>
     [HttpGet]
     [Authorize(Roles = RoleNames.StaffOrAbove)]
-    public async Task<ActionResult<IReadOnlyList<PatientDto>>> GetAll(CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<PatientDto>>> GetAll(
+        CancellationToken ct, [FromQuery] int? page = null, [FromQuery] int? pageSize = null)
     {
+        if (Paging.Normalize(page, pageSize) is { } paging)
+        {
+            Response.Headers[Paging.TotalCountHeader] = (await _repository.CountAsync(ct)).ToString();
+            var paged = await _repository.GetPagedAsync(paging.Skip, paging.Take, ct);
+            return Ok(paged.Select(static p => MapToDto(p)).ToList());
+        }
+
         var patients = await _repository.GetAllAsync(ct);
         return Ok(patients.Select(static p => MapToDto(p)).ToList());
     }
@@ -47,6 +58,9 @@ public class PatientsController : ControllerBase
             if (!string.Equals(patient.Email, userEmail, StringComparison.OrdinalIgnoreCase))
                 return Forbid();
         }
+
+        // HIPAA access logging: record who viewed this patient record
+        await _auditLogger.LogAccessAsync(nameof(Patient), patient.Id.ToString(), "Patient record viewed via API", ct);
 
         return Ok(MapToDto(patient));
     }
@@ -71,8 +85,17 @@ public class PatientsController : ControllerBase
 
         existing.UpdateDetails(request.FirstName, request.LastName, request.DateOfBirth);
         existing.UpdateContactInfo(request.Email, request.Phone);
+        existing.SetSmsConsent(request.SmsRemindersConsent);
 
-        await _repository.UpdateAsync(existing, ct);
+        try
+        {
+            await _repository.UpdateAsync(existing, ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(new ProblemDetails { Detail = "The record was modified by another user. Reload and try again." });
+        }
+
         return NoContent();
     }
 
@@ -96,6 +119,7 @@ public class PatientsController : ControllerBase
         Email = patient.Email,
         Phone = patient.Phone,
         DateOfBirth = patient.DateOfBirth,
+        SmsRemindersConsent = patient.SmsRemindersConsent,
         CreatedAt = patient.CreatedAt,
         UpdatedAt = patient.UpdatedAt
     };

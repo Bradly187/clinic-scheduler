@@ -43,6 +43,12 @@ public sealed class PatientDto
     public DateOnly DateOfBirth { get; init; }
     
     /// <summary>
+    /// Whether the patient has consented to receiving SMS reminders.
+    /// </summary>
+    /// <example>false</example>
+    public bool SmsRemindersConsent { get; init; }
+
+    /// <summary>
     /// The timestamp when the patient record was created.
     /// </summary>
     /// <example>2024-01-15T10:30:00Z</example>

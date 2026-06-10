@@ -1,0 +1,15 @@
+# Terraform state & local files — never commit these
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+# .terraform.lock.hcl is intentionally committed to pin provider versions
+crash.log
+crash.*.log
+
+# Variable files may contain secrets (seed_admin_password, etc.)
+*.tfvars
+!*.tfvars.example
+
+# Plan output
+*.tfplan

@@ -46,6 +46,13 @@
                     <label class="field-label">Email</label>
                     <input class="field-input" @bind="_editEmail" />
 
+                    <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="smsConsent" @bind="_editSmsConsent" />
+                        <label for="smsConsent" style="font-size: 0.875rem;">
+                            Text me appointment reminders (message and data rates may apply; uncheck anytime to stop)
+                        </label>
+                    </div>
+
                     <label class="field-label">Date of Birth</label>
                     <input class="field-input" value="@_patient.DateOfBirth.ToString("yyyy-MM-dd")" disabled />
 
@@ -123,6 +130,7 @@
 
     private string _editPhone = "";
     private string _editEmail = "";
+    private bool _editSmsConsent;
     private string? _profileSavedMessage;
 
     protected override async Task OnInitializedAsync()
@@ -148,6 +156,7 @@
 
         _editPhone = _patient.Phone ?? "";
         _editEmail = _patient.Email;
+        _editSmsConsent = _patient.SmsRemindersConsent;
 
         _appointmentNotes = await DbContext.Appointments
             .Include(a => a.Therapist)
@@ -190,6 +199,7 @@
             var tracked = await DbContext.Patients.FindAsync(_patient.Id);
             if (tracked is null) return;
             tracked.UpdateContactInfo(_editEmail?.Trim() ?? "", _editPhone?.Trim());
+            tracked.SetSmsConsent(_editSmsConsent);
             await DbContext.SaveChangesAsync();
             _patient = tracked;
             _profileSavedMessage = "Profile saved.";
