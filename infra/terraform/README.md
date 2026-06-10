@@ -121,17 +121,24 @@ connectivity check). When `acm_certificate_arn` is set, the container also recei
 
 ## CI/CD (GitHub Actions)
 
-`.github/workflows/deploy.yml` builds, tests, and deploys on every push to `MVP`:
+`.github/workflows/deploy.yml` builds and tests on every push to `MVP`.
+**Deploys are manual-only**: trigger the workflow from the Actions tab
+(Run workflow → MVP branch). A push or merge to `MVP` never touches AWS.
 
 ```
-push to MVP
+push to MVP            -> build-and-test only (no AWS access)
+manual workflow run    (Actions tab, only on Bradly187/clinic-scheduler @ MVP)
   ├─ build-and-test   dotnet restore/build + unit + integration tests
-  └─ deploy           (only on Bradly187/clinic-scheduler @ MVP)
+  └─ deploy
         ├─ assume AWS role via GitHub OIDC  (no stored access keys)
         ├─ docker build + push  ->  ECR  (tags: <git-sha> and latest)
         ├─ describe current task def -> render with the new image
         └─ deploy to ECS + wait for the service to stabilise
 ```
+
+Note the deploy job only *updates* an already-provisioned stack (image push +
+ECS service roll). Creating or destroying infrastructure is always a manual
+`terraform apply`/`destroy` — CI never runs Terraform.
 
 Auth is via the **`github_oidc` Terraform module**, which creates a scoped IAM
 role the workflow federates into — no long-lived AWS keys in GitHub. The role can

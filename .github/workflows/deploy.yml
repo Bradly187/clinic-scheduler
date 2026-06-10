@@ -3,6 +3,9 @@ name: Build, Test & Deploy
 on:
   push:
     branches: [MVP]
+  # Deploys are manual-only: run this workflow from the Actions tab to deploy.
+  # Pushing/merging to MVP runs build + tests but never touches AWS.
+  workflow_dispatch:
 
 # Least-privilege default; the deploy job opts into id-token for OIDC.
 permissions:
@@ -42,8 +45,9 @@ jobs:
   deploy:
     needs: build-and-test
     runs-on: ubuntu-latest
-    # Only deploy from the real repo's MVP branch.
-    if: github.repository == 'Bradly187/clinic-scheduler' && github.ref == 'refs/heads/MVP'
+    # Manual-only (workflow_dispatch from the Actions tab), and only from the
+    # real repo's MVP branch. Push events never deploy.
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'Bradly187/clinic-scheduler' && github.ref == 'refs/heads/MVP'
     permissions:
       id-token: write # required for AWS OIDC federation
       contents: read
