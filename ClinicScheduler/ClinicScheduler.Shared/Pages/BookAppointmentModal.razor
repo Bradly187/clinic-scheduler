@@ -3,6 +3,7 @@
 @inject IRepository<Therapist> TherapistRepo
 @inject IRepository<Room> RoomRepo
 @inject AppointmentSchedulingService SchedulingService
+@inject ClinicScheduler.Shared.Services.IAppointmentEventService AppointmentEventService
 @inject ISnackbar Snackbar
 
 <div class="book-backdrop"
@@ -123,6 +124,7 @@
                 _patientId, _therapistId, _roomId,
                 startDateTime);
 
+            AppointmentEventService.NotifyAppointmentsChanged();
             Snackbar.Add("Appointment booked.", Severity.Success);
             await OnBooked.InvokeAsync();
         }

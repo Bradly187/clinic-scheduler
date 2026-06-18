@@ -18,4 +18,8 @@ public sealed class HttpContextCurrentUserService(IHttpContextAccessor httpConte
     /// <inheritdoc/>
     public string? UserName =>
         httpContextAccessor.HttpContext?.User.Identity?.Name;
+
+    /// <inheritdoc/>
+    public ClaimsPrincipal? Principal =>
+        httpContextAccessor.HttpContext?.User;
 }

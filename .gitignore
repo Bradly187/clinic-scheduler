@@ -17,3 +17,13 @@ Thumbs.db
 
 # Serilog rolling log files
 logs/
+
+# Ignored directories and documents
+node_modules/
+scratch/
+unpacked/
+quizzical-lehmann-63b00a/
+sleepy-moore-536b8e/
+*.pdf
+*.docx
+*.pptx

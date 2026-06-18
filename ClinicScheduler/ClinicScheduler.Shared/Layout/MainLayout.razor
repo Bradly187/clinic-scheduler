@@ -14,9 +14,12 @@
                        aria-label="Toggle navigation menu" />
         <MudText Typo="Typo.h6" Class="ml-3">Clinic Scheduler</MudText>
         <MudSpacer />
-        <MudText Typo="Typo.body2" Color="Color.Inherit">
+        <MudText Typo="Typo.body2" Color="Color.Inherit" Class="mr-4">
             @DateTime.Now.ToString("dddd, MMMM d yyyy")
         </MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.Chat" Color="Color.Inherit" 
+                       OnClick="@(() => _chatDrawerOpen = !_chatDrawerOpen)" 
+                       aria-label="Toggle AI Assistant" />
     </MudAppBar>
 
     <MudDrawer @bind-Open="_drawerOpen" Variant="DrawerVariant.Persistent"
@@ -28,6 +31,10 @@
         <NavMenu />
     </MudDrawer>
 
+    <MudDrawer @bind-Open="_chatDrawerOpen" Anchor="Anchor.End" Variant="DrawerVariant.Persistent" Elevation="2">
+        <ClinicScheduler.Shared.Components.AgentChat />
+    </MudDrawer>
+
     <MudMainContent role="main" id="main-content">
         <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-4 pa-md-6">
             @Body
@@ -37,4 +44,5 @@
 
 @code {
     private bool _drawerOpen = true;
+    private bool _chatDrawerOpen = false;
 }

@@ -5,6 +5,7 @@ using ClinicScheduler.Web;
 using ClinicScheduler.Core.Services;
 using ClinicScheduler.Web.Components;
 using ClinicScheduler.Web.Services;
+using ClinicScheduler.Shared.Services;
 using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
@@ -77,13 +78,16 @@ try
         options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
     // Also register ClinicDbContext directly (scoped) for controllers and services that need it
     builder.Services.AddDbContext<ClinicDbContext>(options =>
-        options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+        options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")),
+        ServiceLifetime.Scoped,
+        ServiceLifetime.Singleton);
 
     // Register the repositories
     builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
 
     // Audit attribution: resolve the acting user from the ambient HTTP context
     builder.Services.AddHttpContextAccessor();
+    builder.Services.AddScoped<IAppointmentEventService, AppointmentEventService>();
     builder.Services.AddSingleton<ICurrentUserService, HttpContextCurrentUserService>();
     builder.Services.AddScoped<IAuditLogger, AuditLogger>();
 
@@ -94,6 +98,9 @@ try
     builder.Services.AddScoped<WaitlistService>();
     builder.Services.AddScoped<WaitlistFulfillmentNotifier>();
     builder.Services.AddScoped<AppointmentNotificationService>();
+    builder.Services.AddSingleton<ClinicScheduler.Web.Services.Skills.ISkillRegistry, ClinicScheduler.Web.Services.Skills.SkillRegistry>();
+    builder.Services.AddScoped<ClinicScheduler.Web.Services.Skills.ISkillExecutor, ClinicScheduler.Web.Services.Skills.SkillExecutor>();
+    builder.Services.AddHttpClient<ClinicScheduler.Shared.Services.IAgentService, AgentService>();
 
     // Outbound email (no-op until the Email section is configured)
     builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
@@ -245,6 +252,12 @@ try
         })
         .AddInteractiveWebAssemblyComponents();
 
+    builder.Services.AddScoped(sp => 
+    {
+        var navManager = sp.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        return new HttpClient { BaseAddress = new Uri(navManager.BaseUri) };
+    });
+
     builder.Services.AddMudServices();
     var app = builder.Build();
 
@@ -372,6 +385,12 @@ try
 
     // Map API endpoints
     app.MapControllers();
+
+    app.MapPost("/api/agent/chat", async (JsonArray chatHistory, ClinicScheduler.Shared.Services.IAgentService agentService) =>
+    {
+        var response = await agentService.ProcessMessageAsync(chatHistory);
+        return Results.Ok(new { response });
+    }).DisableAntiforgery();
 
     app.MapRazorComponents<App>()
         .AddInteractiveServerRenderMode()

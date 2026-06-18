@@ -1,0 +1,112 @@
+@using System.Net.Http.Json
+@using System.Text.Json.Nodes
+@inject ClinicScheduler.Shared.Services.IAgentService AgentService
+@inject ISnackbar Snackbar
+
+<MudPaper Class="pa-4 d-flex flex-column" Style="height: 100vh; width: 400px; max-width: 100%;" Elevation="0">
+    <MudText Typo="Typo.h5" Class="mb-4">
+        <MudIcon Icon="@Icons.Material.Filled.SmartToy" Class="mr-2" />
+        AI Assistant
+    </MudText>
+
+    <div class="flex-grow-1 overflow-y-auto mb-4" style="display: flex; flex-direction: column; gap: 10px;">
+        @foreach (var msg in _messages)
+        {
+            var role = msg["role"]?.GetValue<string>();
+            if (role == "system" || role == "tool") continue;
+
+            var text = GetMessageText(msg);
+            if (string.IsNullOrWhiteSpace(text)) continue;
+
+            var isUser = role == "user";
+
+            <div style="align-self: @(isUser ? "flex-end" : "flex-start"); max-width: 80%;">
+                <MudPaper Class="pa-3" Style="@(isUser ? "background-color: var(--mud-palette-primary); color: white;" : "background-color: var(--mud-palette-background-grey);")">
+                    @text
+                </MudPaper>
+            </div>
+        }
+        @if (_isProcessing)
+        {
+            <div style="align-self: flex-start;">
+                <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+            </div>
+        }
+    </div>
+
+    <div class="d-flex mt-auto">
+        <MudTextField @bind-Value="_inputText" Placeholder="Ask me anything..." 
+                      Variant="Variant.Outlined" Margin="Margin.Dense" 
+                      OnKeyUp="HandleKeyUp" Disabled="_isProcessing" />
+        <MudIconButton Icon="@Icons.Material.Filled.Send" Color="Color.Primary" 
+                       OnClick="SendMessage" Disabled="string.IsNullOrWhiteSpace(_inputText) || _isProcessing" />
+    </div>
+</MudPaper>
+
+@code {
+    private JsonArray _messages = new JsonArray();
+    private string _inputText = "";
+    private bool _isProcessing = false;
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_inputText)) return;
+
+        var userMessage = new JsonObject
+        {
+            ["role"] = "user",
+            ["content"] = _inputText
+        };
+
+        _messages.Add(userMessage);
+        _inputText = "";
+        _isProcessing = true;
+        StateHasChanged();
+
+        try
+        {
+            await AgentService.ProcessMessageAsync(_messages);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            _messages.Remove(userMessage);
+        }
+        finally
+        {
+            _isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendMessage();
+        }
+    }
+
+    private string GetMessageText(JsonNode msg)
+    {
+        var content = msg["content"];
+        if (content is JsonArray arr)
+        {
+            var textParts = new List<string>();
+            foreach (var c in arr)
+            {
+                if (c?["type"]?.GetValue<string>() == "text")
+                {
+                    textParts.Add(c["text"]?.GetValue<string>() ?? "");
+                }
+            }
+            return string.Join("\n", textParts);
+        }
+        return content?.GetValue<string>() ?? "";
+    }
+
+    private class AgentChatResponse
+    {
+        public string Response { get; set; } = "";
+    }
+}

@@ -12,4 +12,7 @@ public interface ICurrentUserService
 
     /// <summary>The user name (email) of the current user, if any.</summary>
     string? UserName { get; }
+
+    /// <summary>The ClaimsPrincipal of the current user, if any.</summary>
+    System.Security.Claims.ClaimsPrincipal? Principal { get; }
 }

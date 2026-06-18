@@ -1,4 +1,6 @@
 @inject IDbContextFactory<ClinicDbContext> DbFactory
+@inject ClinicScheduler.Shared.Services.IAppointmentEventService AppointmentEventService
+@implements IDisposable
 
 <div class="calendar-shell">
     <CalendarSidebar ViewerRole="@ViewerRole"
@@ -106,9 +108,24 @@
 
     protected override async Task OnInitializedAsync()
     {
+        AppointmentEventService.OnAppointmentsChanged += HandleAppointmentsChanged;
         _focusedDate = DateTime.UtcNow.Date;
         _weekStart = WeekStartMonday(_focusedDate);
         await LoadWeekAppointmentsAsync();
+    }
+
+    public void Dispose()
+    {
+        AppointmentEventService.OnAppointmentsChanged -= HandleAppointmentsChanged;
+    }
+
+    private void HandleAppointmentsChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadWeekAppointmentsAsync();
+            StateHasChanged();
+        });
     }
 
     private async Task PrevWeek()

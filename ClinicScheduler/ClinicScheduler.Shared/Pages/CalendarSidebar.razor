@@ -5,6 +5,7 @@
 @inject IRepository<Therapist> TherapistRepo
 @inject ISnackbar Snackbar
 @inject UserManager<AppUser> UserManager
+@inject ClinicScheduler.Shared.Services.IAppointmentEventService AppointmentEventService
 
 <div class="calendar-sidebar">
     <div class="mini-month">
@@ -350,6 +351,7 @@
 
             _pendingRequests.Remove(request);
             Snackbar.Add("Request approved and appointment booked.", Severity.Success);
+            AppointmentEventService.NotifyAppointmentsChanged();
             await OnAppointmentStatusChanged.InvokeAsync();
         }
         catch (Exception ex)
@@ -368,6 +370,7 @@
 
         _pendingRequests.Remove(request);
         Snackbar.Add("Request declined.", Severity.Info);
+        AppointmentEventService.NotifyAppointmentsChanged();
         await OnAppointmentStatusChanged.InvokeAsync();
     }
 
@@ -401,6 +404,7 @@
 
             _pendingCancellations.Remove(cancelRequest);
             Snackbar.Add("Cancellation approved and appointment canceled.", Severity.Success);
+            AppointmentEventService.NotifyAppointmentsChanged();
             await OnAppointmentStatusChanged.InvokeAsync();
         }
         catch (Exception ex)
@@ -459,6 +463,7 @@
             _denyingCancellationId = null;
             _denyReason = "";
             Snackbar.Add("Cancellation request denied.", Severity.Info);
+            AppointmentEventService.NotifyAppointmentsChanged();
             await OnAppointmentStatusChanged.InvokeAsync();
         }
         catch (Exception ex)

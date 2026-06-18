@@ -6,6 +6,7 @@
 @inject IDbContextFactory<ClinicDbContext> DbFactory
 @inject AuthenticationStateProvider AuthStateProvider
 @inject AppointmentSchedulingService SchedulingService
+@inject ClinicScheduler.Shared.Services.IAppointmentEventService AppointmentEventService
 @inject ISnackbar Snackbar
 
 <PageTitle>Dashboard</PageTitle>
@@ -588,6 +589,7 @@
 
             _approveDialogOpen = false;
             Snackbar.Add("Request approved and appointment booked.", Severity.Success);
+            AppointmentEventService.NotifyAppointmentsChanged();
             await LoadClinicDashboardAsync();
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("conflict", StringComparison.OrdinalIgnoreCase)

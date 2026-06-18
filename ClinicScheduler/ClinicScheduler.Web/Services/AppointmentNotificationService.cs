@@ -14,6 +14,9 @@ public sealed class AppointmentNotificationService
     private readonly ClinicDbContext _db;
     private readonly ILogger<AppointmentNotificationService> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AppointmentNotificationService"/> class.
+    /// </summary>
     public AppointmentNotificationService(
         ClinicDbContext db,
         ILogger<AppointmentNotificationService> logger)
