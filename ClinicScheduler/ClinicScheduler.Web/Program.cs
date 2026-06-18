@@ -390,7 +390,7 @@ try
     {
         var response = await agentService.ProcessMessageAsync(chatHistory);
         return Results.Ok(new { response });
-    }).DisableAntiforgery();
+    }).DisableAntiforgery().RequireAuthorization();
 
     app.MapRazorComponents<App>()
         .AddInteractiveServerRenderMode()

@@ -36,19 +36,17 @@ public class AgentServiceTests
     [Fact]
     public async Task ProcessMessageAsync_ShouldInjectSystemPrompt_WhenEmpty()
     {
-        // Arrange
         var handler = new MockHttpMessageHandler(new Queue<JsonObject>(new[] { CreateMockResponse("Hello") }));
         var httpClient = new HttpClient(handler);
 
         _mockRegistry.Setup(r => r.GetSystemPromptCatalog()).Returns("MOCK SYSTEM PROMPT");
+        _mockRegistry.Setup(r => r.GetAllSkills()).Returns(Enumerable.Empty<SkillMetadata>());
 
         var agentService = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object);
         var chatHistory = new JsonArray();
 
-        // Act
         var result = await agentService.ProcessMessageAsync(chatHistory);
 
-        // Assert
         result.Should().Be("Hello");
         chatHistory.Count.Should().Be(2); // System prompt + Agent response
         chatHistory[0]?["role"]?.GetValue<string>().Should().Be("system");
@@ -56,59 +54,51 @@ public class AgentServiceTests
     }
 
     [Fact]
-    public async Task ProcessMessageAsync_ShouldExecuteLoadSkill_AndMakeFollowUpRequest()
+    public async Task ProcessMessageAsync_ShouldExecuteSkillDirectly_AndMakeFollowUpRequest()
     {
-        // Arrange
-        // We simulate a two-turn conversation with the LLM:
-        // Turn 1: LLM decides to call `load_skill("test_skill")`
-        // Turn 2: LLM receives the skill instruction and replies "Skill is ready"
-        
-        var turn1Response = CreateMockToolCallResponse("load_skill", "{\"skillName\":\"test_skill\"}");
-        var turn2Response = CreateMockResponse("Skill is ready!");
+        // Skills are loaded upfront so the LLM calls them directly (no load_skill step).
+        // Turn 1: LLM calls "test_skill" directly.
+        // Turn 2: LLM receives the skill result and replies with the final answer.
+
+        var turn1Response = CreateMockToolCallResponse("test_skill", "{}");
+        var turn2Response = CreateMockResponse("Done!");
 
         var handler = new MockHttpMessageHandler(new Queue<JsonObject>(new[] { turn1Response, turn2Response }));
         var httpClient = new HttpClient(handler);
 
-        _mockRegistry.Setup(r => r.GetSkill("test_skill")).Returns(new SkillMetadata 
-        { 
-            Name = "test_skill", 
-            Instructions = "Instruction text." 
-        });
-
-        _mockExecutor.Setup(e => e.GetToolSchema("test_skill")).Returns(new JsonObject 
-        { 
-            ["type"] = "function", 
-            ["function"] = new JsonObject { ["name"] = "test_skill" } 
-        });
-
-        var agentService = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object);
-        var chatHistory = new JsonArray 
+        var skillSchema = new JsonObject
         {
-            new JsonObject { ["role"] = "system", ["content"] = "MOCK SYSTEM PROMPT" },
-            new JsonObject { ["role"] = "user", ["content"] = "Load the test skill" }
+            ["type"] = "function",
+            ["function"] = new JsonObject { ["name"] = "test_skill" }
         };
 
-        // Act
+        _mockRegistry.Setup(r => r.GetAllSkills()).Returns(new[] { new SkillMetadata { Name = "test_skill", Description = "A test skill." } });
+        _mockExecutor.Setup(e => e.GetToolSchema("test_skill")).Returns(skillSchema);
+        _mockExecutor.Setup(e => e.ExecuteAsync("test_skill", It.IsAny<JsonObject?>())).ReturnsAsync("skill result");
+
+        var agentService = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object);
+        var chatHistory = new JsonArray
+        {
+            new JsonObject { ["role"] = "system", ["content"] = "MOCK SYSTEM PROMPT" },
+            new JsonObject { ["role"] = "user", ["content"] = "Use the test skill" }
+        };
+
         var result = await agentService.ProcessMessageAsync(chatHistory);
 
-        // Assert
-        result.Should().Be("Skill is ready!");
-        
-        // Assert handler was called twice
+        result.Should().Be("Done!");
         handler.Requests.Count.Should().Be(2);
-        
-        // The first request should only have the `load_skill` tool available
+
+        // Both requests should include test_skill in the tools list
         var request1Tools = handler.Requests[0]["tools"]?.AsArray();
         request1Tools.Should().NotBeNull();
         request1Tools!.Count.Should().Be(1);
-        request1Tools[0]?["function"]?["name"]?.GetValue<string>().Should().Be("load_skill");
+        request1Tools[0]?["function"]?["name"]?.GetValue<string>().Should().Be("test_skill");
 
-        // The second request should have `load_skill` AND `test_skill` schemas available
+        // Second request should also carry the same tools
         var request2Tools = handler.Requests[1]["tools"]?.AsArray();
         request2Tools.Should().NotBeNull();
-        request2Tools!.Count.Should().Be(2);
-        request2Tools[0]?["function"]?["name"]?.GetValue<string>().Should().Be("load_skill");
-        request2Tools[1]?["function"]?["name"]?.GetValue<string>().Should().Be("test_skill");
+        request2Tools!.Count.Should().Be(1);
+        request2Tools[0]?["function"]?["name"]?.GetValue<string>().Should().Be("test_skill");
     }
 
     // Helper methods to create mocked Ollama responses

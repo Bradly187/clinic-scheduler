@@ -2,6 +2,7 @@
 @using System.Text.Json.Nodes
 @inject ClinicScheduler.Shared.Services.IAgentService AgentService
 @inject ISnackbar Snackbar
+@inject IJSRuntime JS
 
 <MudPaper Class="pa-4 d-flex flex-column" Style="height: 100vh; width: 400px; max-width: 100%;" Elevation="0">
     <MudText Typo="Typo.h5" Class="mb-4">
@@ -9,7 +10,7 @@
         AI Assistant
     </MudText>
 
-    <div class="flex-grow-1 overflow-y-auto mb-4" style="display: flex; flex-direction: column; gap: 10px;">
+    <div data-agentchat-messages class="flex-grow-1 overflow-y-auto mb-4" style="display: flex; flex-direction: column; gap: 10px;">
         @foreach (var msg in _messages)
         {
             var role = msg["role"]?.GetValue<string>();
@@ -47,6 +48,11 @@
     private JsonArray _messages = new JsonArray();
     private string _inputText = "";
     private bool _isProcessing = false;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await JS.InvokeVoidAsync("eval",
+            "var el = document.querySelector('[data-agentchat-messages]'); if (el) el.scrollTop = el.scrollHeight;");
+    }
 
     private async Task SendMessage()
     {
@@ -65,7 +71,14 @@
 
         try
         {
-            await AgentService.ProcessMessageAsync(_messages);
+            var reply = await AgentService.ProcessMessageAsync(_messages);
+            // Server-side AgentService mutates _messages in-place (Blazor Server path).
+            // ClientAgentService (WASM path) returns the reply but does not mutate _messages.
+            if (_messages.LastOrDefault()?["role"]?.GetValue<string>() != "assistant"
+                && !string.IsNullOrEmpty(reply))
+            {
+                _messages.Add(new JsonObject { ["role"] = "assistant", ["content"] = reply });
+            }
         }
         catch (Exception ex)
         {

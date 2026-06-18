@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Net.Http.Headers;
-using ClinicScheduler.Core.Entities;
 using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Shared.Services;
 using ClinicScheduler.Web.Services.Skills;
@@ -36,37 +35,10 @@ public class AgentService : IAgentService
 
     public async Task<string> ProcessMessageAsync(JsonArray chatHistory, CancellationToken ct = default)
     {
-        var loadSkillTool = new JsonObject
-        {
-            ["type"] = "function",
-            ["function"] = new JsonObject
-            {
-                ["name"] = "load_skill",
-                ["description"] = "Loads the specified skill into your context so you can use it. Use this whenever you need to use one of the skills listed in the system prompt.",
-                ["parameters"] = new JsonObject
-                {
-                    ["type"] = "object",
-                    ["properties"] = new JsonObject
-                    {
-                        ["skillName"] = new JsonObject
-                        {
-                            ["type"] = "string",
-                            ["description"] = "The name of the skill to load."
-                        }
-                    },
-                    ["required"] = new JsonArray { "skillName" }
-                }
-            }
-        };
-
-        var tools = new JsonArray { loadSkillTool };
+        var tools = new JsonArray();
         foreach (var skill in _skillRegistry.GetAllSkills())
         {
-            try
-            {
-                tools.Add(_skillExecutor.GetToolSchema(skill.Name));
-            }
-            catch (Exception) { }
+            tools.Add(_skillExecutor.GetToolSchema(skill.Name));
         }
         
         // Inject system prompt if not present
@@ -137,38 +109,8 @@ public class AgentService : IAgentService
                             try { toolInput = JsonSerializer.Deserialize<JsonObject>(toolArgsStr); } catch { }
                         }
 
-                        if (toolName == "load_skill")
+                        if (toolName != null)
                         {
-                            var skillName = toolInput?["skillName"]?.GetValue<string>();
-                            if (skillName != null)
-                            {
-                                var skillMeta = _skillRegistry.GetSkill(skillName);
-                                if (skillMeta != null)
-                                {
-                                    // Add the actual skill schema to the tools array for the NEXT call
-                                    tools.Add(_skillExecutor.GetToolSchema(skillName));
-                                    
-                                    chatHistory.Add(new JsonObject
-                                    {
-                                        ["role"] = "tool",
-                                        ["tool_call_id"] = toolUseId,
-                                        ["content"] = $"Skill '{skillName}' loaded successfully. INSTRUCTIONS: {skillMeta.Instructions}"
-                                    });
-                                }
-                                else
-                                {
-                                    chatHistory.Add(new JsonObject
-                                    {
-                                        ["role"] = "tool",
-                                        ["tool_call_id"] = toolUseId,
-                                        ["content"] = $"Skill '{skillName}' not found."
-                                    });
-                                }
-                            }
-                        }
-                        else if (toolName != null)
-                        {
-                            // It's an actual skill execution
                             var resultText = await _skillExecutor.ExecuteAsync(toolName, toolInput);
                             chatHistory.Add(new JsonObject
                             {
@@ -181,7 +123,7 @@ public class AgentService : IAgentService
                 }
 
                 requestBody["messages"] = chatHistory.DeepClone();
-                requestBody["tools"] = tools; // Send updated tools
+                requestBody["tools"] = tools;
                 response = await SendRequestAsync(requestBody, ct);
             }
             else

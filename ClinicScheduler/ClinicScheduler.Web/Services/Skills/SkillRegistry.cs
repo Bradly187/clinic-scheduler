@@ -67,10 +67,8 @@ public class SkillRegistry : ISkillRegistry
     public string GetSystemPromptCatalog()
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine("You are a Clinic Assistant Agent.");
-        sb.AppendLine("You have access to the following skills. To use a skill, you MUST first call the `load_skill` tool with the skill's name.");
-        sb.AppendLine("Once loaded, the skill's specific tool will become available to you on the next turn, and you will receive further instructions on how to use it.");
-        sb.AppendLine("Available skills:");
+        sb.AppendLine("You are a Clinic Assistant Agent. You help patients and clinic staff manage appointments.");
+        sb.AppendLine("You have access to the following tools. Use them directly when needed:");
         foreach (var skill in _skills)
         {
             sb.AppendLine($"- {skill.Name}: {skill.Description}");
