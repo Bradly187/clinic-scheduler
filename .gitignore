@@ -11,6 +11,10 @@ obj/
 .vscode/
 .claude/
 
+# Local secrets — use dotnet user-secrets instead
+appsettings.Development.json
+appsettings.Local.json
+
 # OS files
 .DS_Store
 Thumbs.db
