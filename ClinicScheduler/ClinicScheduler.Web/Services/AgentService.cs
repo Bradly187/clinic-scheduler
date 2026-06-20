@@ -105,17 +105,44 @@ public class AgentService : IAgentService
             });
         }
 
+        // Run the shared tool-calling loop, executing skills via the SkillExecutor.
+        return await RunLoopAsync(chatHistory, tools,
+            (toolName, toolInput, _) => _skillExecutor.ExecuteAsync(toolName, toolInput), ct);
+    }
+
+    /// <summary>
+    /// Reusable LLM tool-calling loop. Sends <paramref name="messages"/> and <paramref name="tools"/>
+    /// to Gemini and, whenever the model returns tool calls, dispatches each through
+    /// <paramref name="executeTool"/> and feeds the results back — repeating until the model produces
+    /// a final text answer or the iteration cap is reached. The <paramref name="messages"/> array is
+    /// mutated in place (assistant + tool turns are appended).
+    ///
+    /// This single primitive powers both the single-agent flow (skills as tools) and the
+    /// multi-agent <see cref="OrchestratorAgentService"/> (specialist agents as tools).
+    /// </summary>
+    /// <param name="messages">Conversation so far, including the system prompt as the first entry.</param>
+    /// <param name="tools">Tool schemas to offer the model.</param>
+    /// <param name="executeTool">Callback that runs a tool by name and returns its textual result.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<string> RunLoopAsync(
+        JsonArray messages,
+        JsonArray tools,
+        Func<string, JsonObject?, CancellationToken, Task<string>> executeTool,
+        CancellationToken ct = default)
+    {
         var requestBody = new JsonObject
         {
             ["model"] = _modelName,
-            ["messages"] = chatHistory.DeepClone(),
+            ["messages"] = messages.DeepClone(),
             ["tools"] = tools
         };
 
-        // Initial request to the Gemini API
         var response = await SendRequestAsync(requestBody, ct);
 
-        // Tool execution loop: process tool calls until the LLM returns a final text response
+        // Cap tool-call rounds so a misbehaving model can't loop forever.
+        const int maxToolRounds = 8;
+        var toolRounds = 0;
+
         while (response != null)
         {
             var choice = response["choices"]?[0];
@@ -126,10 +153,14 @@ public class AgentService : IAgentService
 
             if (message == null) break;
 
-            chatHistory.Add(message.DeepClone());
+            messages.Add(message.DeepClone());
 
             if (finishReason == "tool_calls" || message.ContainsKey("tool_calls"))
             {
+                if (++toolRounds > maxToolRounds)
+                    return "I wasn't able to complete that request within a reasonable number of steps. " +
+                           "Please try rephrasing or breaking it into smaller requests.";
+
                 var toolCalls = message["tool_calls"]?.AsArray();
                 if (toolCalls != null)
                 {
@@ -148,8 +179,8 @@ public class AgentService : IAgentService
 
                         if (toolName != null)
                         {
-                            var resultText = await _skillExecutor.ExecuteAsync(toolName, toolInput);
-                            chatHistory.Add(new JsonObject
+                            var resultText = await executeTool(toolName, toolInput, ct);
+                            messages.Add(new JsonObject
                             {
                                 ["role"] = "tool",
                                 ["name"] = toolName,
@@ -160,7 +191,7 @@ public class AgentService : IAgentService
                     }
                 }
 
-                requestBody["messages"] = chatHistory.DeepClone();
+                requestBody["messages"] = messages.DeepClone();
                 requestBody["tools"] = tools;
                 response = await SendRequestAsync(requestBody, ct);
             }

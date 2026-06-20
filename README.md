@@ -21,6 +21,7 @@ Traditional rule-based chatbots fail to handle the nuanced, natural language req
 
 | Concept | How this project demonstrates it |
 |---|---|
+| **Multi-agent system** | A coordinator agent routes each request to a specialist sub-agent (Info / Scheduling / Triage), each with its own prompt and restricted skills — [details below](#-multi-agent-orchestration). |
 | **Agent skills** | Filesystem-discovered `SKILL.md` skills (`SkillRegistry` parses frontmatter; `SkillExecutor` runs them) — [details below](#skills-as-markdown). |
 | **MCP server** | A standalone Model Context Protocol server (`ClinicScheduler.Mcp`) exposes the scheduling tools to any MCP client (Claude Desktop, ADK, MCP Inspector) — [details below](#-mcp-server). |
 | **Security features** | Role-based authorization enforced in C# (not just prompts), code-enforced two-step confirmation for destructive actions, secret hygiene, auth-gated agent endpoint — [details below](#guardrails--security). |
@@ -48,6 +49,34 @@ flowchart LR
 ```
 
 The loop repeats: the model may call several tools in sequence (e.g. `get_my_appointments` → `cancel_my_appointment`) before producing its final answer.
+
+## 🤝 Multi-agent orchestration
+
+The chat is served by a **multi-agent orchestrator** (`OrchestratorAgentService`). A lightweight
+**Coordinator** classifies each request and delegates it to exactly one **specialist sub-agent**,
+each with its own system prompt and a *restricted* set of skills:
+
+```mermaid
+flowchart TD
+    U([User message]) --> C{Coordinator<br/>route_to_*}
+    C -->|info / lookups| Info[Info agent<br/>get_my_appointments, get_appointments]
+    C -->|book / cancel / reschedule| Sched[Scheduling agent<br/>schedule / cancel skills]
+    C -->|symptom guidance| Triage[Triage agent<br/>advisory, no data access]
+    Info --> R[answer]
+    Sched --> R
+    Triage --> R
+    R --> C
+    C --> Out([Reply to user])
+```
+
+- The Coordinator's *tools are the specialists* (`route_to_info_agent`, `route_to_scheduling_agent`,
+  `route_to_triage_agent`). When it routes, the orchestrator runs that specialist as a **nested tool
+  loop** over a clean copy of the conversation, then feeds the answer back for the Coordinator to relay.
+- Each specialist only sees the skills relevant to its job — so the Scheduling agent can't be tricked
+  into a read-only role's behavior, and vice-versa. Adding a new clinic workflow is as simple as adding
+  a `SpecialistAgent` to the roster.
+- Both the Coordinator and the specialists run on the **same** `AgentService.RunLoopAsync` primitive
+  (which also enforces a tool-call iteration cap to prevent runaway loops).
 
 ### Skills as Markdown
 

@@ -100,7 +100,12 @@ try
     builder.Services.AddScoped<AppointmentNotificationService>();
     builder.Services.AddSingleton<ClinicScheduler.Web.Services.Skills.ISkillRegistry, ClinicScheduler.Web.Services.Skills.SkillRegistry>();
     builder.Services.AddScoped<ClinicScheduler.Web.Services.Skills.ISkillExecutor, ClinicScheduler.Web.Services.Skills.SkillExecutor>();
-    builder.Services.AddHttpClient<ClinicScheduler.Shared.Services.IAgentService, AgentService>();
+    // AgentService is the shared LLM tool-loop primitive (typed HttpClient for Gemini).
+    builder.Services.AddHttpClient<AgentService>();
+    // The chat is served by the multi-agent orchestrator: a coordinator that routes each
+    // request to a specialist sub-agent (Info / Scheduling / Triage), each running its own
+    // tool loop via AgentService.RunLoopAsync.
+    builder.Services.AddScoped<ClinicScheduler.Shared.Services.IAgentService, OrchestratorAgentService>();
 
     // Outbound email (no-op until the Email section is configured)
     builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));

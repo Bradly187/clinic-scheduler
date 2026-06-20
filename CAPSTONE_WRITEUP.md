@@ -26,9 +26,22 @@ endpoint, embedded in an ASP.NET Core 10 + Blazor application backed by PostgreS
 
 ## 3. Course concepts demonstrated
 
-This project demonstrates **four** of the course's key concepts:
+This project demonstrates **five** of the course's key concepts:
 
-### a) Agent skills
+### a) Multi-agent system
+The chat is served by an **orchestrator** (`OrchestratorAgentService`): a lightweight **Coordinator**
+classifies each request and delegates it to exactly one **specialist sub-agent**, each with its own
+system prompt and a *restricted* skill set:
+- **Info agent** — read-only lookups (what appointments do I have?).
+- **Scheduling agent** — booking, cancelling, rescheduling (the write operations).
+- **Triage agent** — advisory: maps described symptoms to an appropriate therapy type/specialty.
+
+The Coordinator's *tools are the specialists* (`route_to_*`); routing runs the chosen specialist as a
+nested tool loop and feeds its answer back. Restricting each specialist's skills is itself a safety
+boundary — a read-only role can't perform writes. New clinic workflows are added by dropping a new
+specialist into the roster.
+
+### b) Agent skills
 Each tool the agent can use is defined as a self-contained `SKILL.md` file (YAML frontmatter +
 natural-language instructions) under `ClinicScheduler.Web/Skills/<name>/`. At startup, `SkillRegistry`
 discovers and parses them into the agent's system-prompt tool catalog, while `SkillExecutor` holds the
@@ -38,7 +51,7 @@ separates **how a tool is described** to the model from **how it is executed**.
 Skills: `get_my_appointments`, `cancel_my_appointment`, `get_appointments`, `cancel_any_appointment`,
 `schedule_appointment`.
 
-### b) MCP server
+### c) MCP server
 A standalone **Model Context Protocol server** (`ClinicScheduler.Mcp`, built on the official C# SDK)
 exposes the scheduling operations to *any* MCP client — Claude Desktop, an ADK agent, or the MCP
 Inspector — over stdio: `list_therapists`, `get_appointments`, `schedule_appointment`,
@@ -46,7 +59,7 @@ Inspector — over stdio: `list_therapists`, `get_appointments`, `schedule_appoi
 + EF Core repositories) as the web app, so business rules are enforced identically no matter which
 front end calls them.
 
-### c) Security features
+### d) Security features
 Security is enforced **in code, not just prompts**:
 - **Role-based authorization** — privileged tools (e.g. cancelling anyone's appointment) check the
   caller's roles in C# and refuse unauthorized callers, so a misbehaving model cannot escalate.
@@ -56,7 +69,7 @@ Security is enforced **in code, not just prompts**:
 - **Secret hygiene** — API keys live in git-ignored `.env` / environment variables, never in the repo.
 - **Auth-gated agent endpoint** — the chat API requires authentication.
 
-### d) Tool use & context injection *(bonus)*
+### e) Tool use & context injection *(bonus)*
 The agent runs a full OpenAI-style tool-calling loop (model → `tool_calls` → backend execution →
 result → repeat until a final answer), with the logged-in user's identity and roles injected into the
 system prompt so the agent behaves correctly per permission level.
@@ -67,20 +80,22 @@ system prompt so the agent behaves correctly per permission level.
 Patient / Staff
       │  natural language
       ▼
-AgentChat (Blazor)  ──►  AgentService  ──►  Google Gemini (tool-calling)
-                              │  ▲                 │
-                  tool result │  └── tool_calls ───┘
-                              ▼
-                        SkillExecutor ──► PostgreSQL
-                              │
-                  (same business rules)
-                              ▲
-ClinicScheduler.Mcp (MCP server) ──► AppointmentSchedulingService ──► PostgreSQL
+AgentChat (Blazor)
+      ▼
+Coordinator agent  ──► routes to one specialist (Gemini tool-calling)
+      ├─ Info agent        (read-only lookups)
+      ├─ Scheduling agent  (book / cancel / reschedule)
+      └─ Triage agent      (symptom → specialty advice)
+                 │  each runs its own tool loop
+                 ▼
+            SkillExecutor ──► AppointmentSchedulingService ──► PostgreSQL
+                                        ▲
+ClinicScheduler.Mcp (MCP server) ───────┘   (same business rules)
       ▲ stdio
 MCP client (Claude Desktop / ADK / Inspector)
 ```
 
-Both front ends — the in-app Gemini agent and the MCP server — funnel through the **same**
+Every path — the Coordinator's specialists *and* the MCP server — funnels through the **same**
 `AppointmentSchedulingService`, the single source of truth for scheduling rules.
 
 ## 5. Tech stack
