@@ -53,6 +53,15 @@ public class OrchestratorAgentService : IAgentService
             ["get_my_appointments", "get_appointments", "schedule_appointment", "cancel_my_appointment", "cancel_any_appointment"]),
 
         new SpecialistAgent(
+            "waitlist_agent",
+            "Manages the waitlist: add a patient to it for a date window, list their waitlist entries, or remove one. Use when no slot is available now or the user mentions waiting for an opening.",
+            "You are the Waitlist specialist for a pain-management clinic. You add patients to the waitlist for a " +
+            "date window (the system books the first matching opening automatically), list their active waitlist " +
+            "entries, and remove entries on request. Confirm the date window and any preferences before adding, and " +
+            "confirm which entry to remove (show the list first if needed). Present results clearly.",
+            ["join_waitlist", "get_my_waitlist", "leave_waitlist"]),
+
+        new SpecialistAgent(
             "triage_agent",
             "Advises which therapy type or therapist specialty fits a described symptom or concern, then guides toward booking. No record access.",
             "You are the Triage specialist for a pain-management clinic. Based on the patient's described symptoms " +

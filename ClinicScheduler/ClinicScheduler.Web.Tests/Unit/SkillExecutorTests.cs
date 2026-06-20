@@ -267,4 +267,36 @@ public class SkillExecutorTests : IDisposable
         result.Should().Contain("Upcoming scheduled appointments for 'John Doe'");
         result.Should().Contain("ID: 100");
     }
+
+    [Fact]
+    public async Task ExecuteAsync_Waitlist_Join_List_Leave_RoundTrips()
+    {
+        SetupUser("patient@test.com");
+        var patient = new Patient("John", "Doe", "patient@test.com", new DateOnly(1990, 1, 1)) { Id = 1 };
+        _dbContext.Patients.Add(patient);
+        await _dbContext.SaveChangesAsync();
+
+        // Join the waitlist for a date window.
+        var joinResult = await _executor.ExecuteAsync("join_waitlist", new JsonObject
+        {
+            ["earliestDate"] = "2026-07-01",
+            ["latestDate"] = "2026-07-15"
+        });
+        joinResult.Should().Contain("Added to the waitlist");
+        _dbContext.WaitlistEntries.Count().Should().Be(1);
+
+        // List it.
+        var listResult = await _executor.ExecuteAsync("get_my_waitlist", null);
+        listResult.Should().Contain("Active waitlist entries");
+        listResult.Should().Contain("Jul 1, 2026");
+
+        // Leave it.
+        var entryId = _dbContext.WaitlistEntries.First().Id;
+        var leaveResult = await _executor.ExecuteAsync("leave_waitlist", new JsonObject { ["waitlistEntryId"] = entryId });
+        leaveResult.Should().Contain($"Removed waitlist entry {entryId}");
+
+        // No longer active.
+        var afterResult = await _executor.ExecuteAsync("get_my_waitlist", null);
+        afterResult.Should().Contain("no active waitlist entries");
+    }
 }

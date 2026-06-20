@@ -61,9 +61,11 @@ flowchart TD
     U([User message]) --> C{Coordinator<br/>route_to_*}
     C -->|info / lookups| Info[Info agent<br/>get_my_appointments, get_appointments]
     C -->|book / cancel / reschedule| Sched[Scheduling agent<br/>schedule / cancel skills]
+    C -->|join / list / leave waitlist| Wait[Waitlist agent<br/>join / get / leave waitlist]
     C -->|symptom guidance| Triage[Triage agent<br/>advisory, no data access]
     Info --> R[answer]
     Sched --> R
+    Wait --> R
     Triage --> R
     R --> C
     C --> Out([Reply to user])
@@ -89,7 +91,10 @@ Skills/
 ├── cancel_my_appointment/SKILL.md    # patient: cancel own appointment
 ├── get_appointments/SKILL.md         # staff/admin: look up any patient
 ├── cancel_any_appointment/SKILL.md   # staff/admin: cancel any appointment
-└── schedule_appointment/SKILL.md     # book a new appointment
+├── schedule_appointment/SKILL.md     # book a new appointment
+├── join_waitlist/SKILL.md            # join the waitlist for a date window
+├── get_my_waitlist/SKILL.md          # list own active waitlist entries
+└── leave_waitlist/SKILL.md           # remove a waitlist entry
 ```
 
 - **`SkillRegistry`** discovers every `SKILL.md` at startup, parses its YAML frontmatter (`name`, `description`) and instruction body, and assembles the system-prompt tool catalog.

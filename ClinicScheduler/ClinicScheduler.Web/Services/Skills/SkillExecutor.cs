@@ -206,6 +206,94 @@ public class SkillExecutor : ISkillExecutor
                     }
                 }
             },
+            "join_waitlist" => new JsonObject
+            {
+                ["type"] = "function",
+                ["function"] = new JsonObject
+                {
+                    ["name"] = "join_waitlist",
+                    ["description"] = "Adds the patient to the waitlist for a date window. When a matching slot opens up, the system books it automatically. Patients join for themselves; Staff/Admin can specify a patientName.",
+                    ["parameters"] = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["earliestDate"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["description"] = "Earliest date the patient can attend, in YYYY-MM-DD format."
+                            },
+                            ["latestDate"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["description"] = "Latest date the patient can attend, in YYYY-MM-DD format (window must be within 90 days of the earliest date)."
+                            },
+                            ["therapistName"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["description"] = "Optional preferred therapist (full or partial name). Omit for any therapist."
+                            },
+                            ["preferredTimeFrom"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["description"] = "Optional earliest acceptable start time in HH:MM (24-hour). Omit for any time."
+                            },
+                            ["preferredTimeTo"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["description"] = "Optional latest acceptable start time in HH:MM (24-hour). Omit for any time."
+                            },
+                            ["notes"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["description"] = "Optional notes about the request."
+                            },
+                            ["patientName"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["description"] = "Full or partial name of the patient. Staff/Admin only — patients are added under their own account."
+                            }
+                        },
+                        ["required"] = new JsonArray { "earliestDate", "latestDate" }
+                    }
+                }
+            },
+            "get_my_waitlist" => new JsonObject
+            {
+                ["type"] = "function",
+                ["function"] = new JsonObject
+                {
+                    ["name"] = "get_my_waitlist",
+                    ["description"] = "Lists the currently logged in patient's active waitlist entries.",
+                    ["parameters"] = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject()
+                    }
+                }
+            },
+            "leave_waitlist" => new JsonObject
+            {
+                ["type"] = "function",
+                ["function"] = new JsonObject
+                {
+                    ["name"] = "leave_waitlist",
+                    ["description"] = "Removes one of the currently logged in patient's waitlist entries, given its ID.",
+                    ["parameters"] = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["waitlistEntryId"] = new JsonObject
+                            {
+                                ["type"] = "integer",
+                                ["description"] = "The ID of the waitlist entry to remove."
+                            }
+                        },
+                        ["required"] = new JsonArray { "waitlistEntryId" }
+                    }
+                }
+            },
             _ => throw new ArgumentException($"Unknown skill: {skillName}")
         };
     }
@@ -226,6 +314,16 @@ public class SkillExecutor : ISkillExecutor
                     arguments?["date"]?.GetValue<string>(),
                     arguments?["startTime"]?.GetValue<string>(),
                     arguments?["patientName"]?.GetValue<string>()),
+                "join_waitlist" => await JoinWaitlist(
+                    arguments?["earliestDate"]?.GetValue<string>(),
+                    arguments?["latestDate"]?.GetValue<string>(),
+                    arguments?["therapistName"]?.GetValue<string>(),
+                    arguments?["preferredTimeFrom"]?.GetValue<string>(),
+                    arguments?["preferredTimeTo"]?.GetValue<string>(),
+                    arguments?["notes"]?.GetValue<string>(),
+                    arguments?["patientName"]?.GetValue<string>()),
+                "get_my_waitlist" => await GetMyWaitlist(),
+                "leave_waitlist" => await LeaveWaitlist(ParseOptionalInt(arguments?["waitlistEntryId"]) ?? 0),
                 _ => $"Error: Unknown skill {skillName}."
             };
         }
@@ -507,6 +605,147 @@ public class SkillExecutor : ISkillExecutor
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
             return $"Could not schedule appointment: {ex.Message}";
+        }
+    }
+
+    private async Task<string> JoinWaitlist(
+        string? earliestDate, string? latestDate, string? therapistName,
+        string? preferredTimeFrom, string? preferredTimeTo, string? notes, string? patientName)
+    {
+        var user = _currentUserService.Principal;
+        if (user == null) return "Error: User is not authenticated.";
+
+        if (string.IsNullOrWhiteSpace(earliestDate)) return "Error: earliestDate is required (YYYY-MM-DD).";
+        if (string.IsNullOrWhiteSpace(latestDate)) return "Error: latestDate is required (YYYY-MM-DD).";
+        if (!DateOnly.TryParse(earliestDate, out var earliest))
+            return $"Error: Could not parse earliestDate '{earliestDate}'. Use YYYY-MM-DD format.";
+        if (!DateOnly.TryParse(latestDate, out var latest))
+            return $"Error: Could not parse latestDate '{latestDate}'. Use YYYY-MM-DD format.";
+
+        TimeOnly? timeFrom = null, timeTo = null;
+        if (!string.IsNullOrWhiteSpace(preferredTimeFrom))
+        {
+            if (!TimeOnly.TryParse(preferredTimeFrom, out var f)) return $"Error: Could not parse preferredTimeFrom '{preferredTimeFrom}'. Use HH:MM.";
+            timeFrom = f;
+        }
+        if (!string.IsNullOrWhiteSpace(preferredTimeTo))
+        {
+            if (!TimeOnly.TryParse(preferredTimeTo, out var t)) return $"Error: Could not parse preferredTimeTo '{preferredTimeTo}'. Use HH:MM.";
+            timeTo = t;
+        }
+
+        // Resolve patient (tracked, so EF doesn't try to re-insert it as a new patient).
+        Patient? patient;
+        var isStaffOrAbove = user.IsInRole(RoleNames.Admin) || user.IsInRole(RoleNames.ClinicManager)
+                          || user.IsInRole(RoleNames.Staff) || user.IsInRole(RoleNames.Therapist);
+        if (isStaffOrAbove && !string.IsNullOrWhiteSpace(patientName))
+        {
+            var matches = await _dbContext.Patients
+                .Where(p => p.FirstName.Contains(patientName) || p.LastName.Contains(patientName))
+                .ToListAsync();
+            if (matches.Count == 0) return $"Error: No patient found matching '{patientName}'.";
+            if (matches.Count > 1)
+                return $"Multiple patients match '{patientName}': {string.Join(", ", matches.Select(p => $"{p.FirstName} {p.LastName} (ID:{p.Id})"))}. Please be more specific.";
+            patient = matches[0];
+        }
+        else
+        {
+            if (user.Identity?.Name == null) return "Error: User is not authenticated.";
+            patient = await _dbContext.Patients.FirstOrDefaultAsync(p => p.Email == user.Identity.Name);
+            if (patient == null) return "Error: Patient record not found for the current user.";
+        }
+
+        // Resolve optional preferred therapist (tracked).
+        Therapist? therapist = null;
+        if (!string.IsNullOrWhiteSpace(therapistName))
+        {
+            var therapists = await _dbContext.Therapists
+                .Where(t => t.FirstName.Contains(therapistName) || t.LastName.Contains(therapistName))
+                .ToListAsync();
+            if (therapists.Count == 0) return $"Error: No therapist found matching '{therapistName}'.";
+            if (therapists.Count > 1)
+                return $"Multiple therapists match '{therapistName}': {string.Join(", ", therapists.Select(t => $"{t.FirstName} {t.LastName}"))}. Please be more specific.";
+            therapist = therapists[0];
+        }
+
+        try
+        {
+            var entry = new WaitlistEntry(patient, earliest, latest, therapist, location: null, timeFrom, timeTo, notes);
+            _dbContext.WaitlistEntries.Add(entry);
+            await _dbContext.SaveChangesAsync();
+
+            var therapistPref = therapist != null ? $"{therapist.FirstName} {therapist.LastName}" : "any therapist";
+            var timePref = (timeFrom, timeTo) switch
+            {
+                ({ } f, { } t) => $" between {f:h:mm tt} and {t:h:mm tt}",
+                ({ } f, null) => $" from {f:h:mm tt}",
+                (null, { } t) => $" before {t:h:mm tt}",
+                _ => ""
+            };
+            return $"Added to the waitlist (entry ID {entry.Id}) for {patient.FirstName} {patient.LastName}: "
+                 + $"{earliest:MMM d, yyyy} – {latest:MMM d, yyyy}{timePref}, with {therapistPref}. "
+                 + $"The first matching opening will be booked automatically.";
+        }
+        catch (ArgumentException ex)
+        {
+            return $"Could not join the waitlist: {ex.Message}";
+        }
+    }
+
+    private async Task<string> GetMyWaitlist()
+    {
+        var user = _currentUserService.Principal;
+        if (user?.Identity?.Name == null) return "Error: User is not authenticated.";
+
+        var patient = await _dbContext.Patients.AsNoTracking().FirstOrDefaultAsync(p => p.Email == user.Identity.Name);
+        if (patient == null) return "Error: Patient record not found for the current user.";
+
+        var entries = await _dbContext.WaitlistEntries
+            .AsNoTracking()
+            .Include(w => w.Therapist)
+            .Where(w => w.PatientId == patient.Id && w.Status == WaitlistStatus.Active)
+            .OrderBy(w => w.CreatedAt)
+            .ToListAsync();
+
+        if (entries.Count == 0) return "You have no active waitlist entries.";
+
+        var sb = new System.Text.StringBuilder("Active waitlist entries:\n");
+        foreach (var w in entries)
+        {
+            var therapistPref = w.Therapist != null ? $"{w.Therapist.FirstName} {w.Therapist.LastName}" : "any therapist";
+            var timePref = (w.PreferredTimeFrom, w.PreferredTimeTo) switch
+            {
+                ({ } f, { } t) => $", {f:h:mm tt}–{t:h:mm tt}",
+                ({ } f, null) => $", from {f:h:mm tt}",
+                (null, { } t) => $", before {t:h:mm tt}",
+                _ => ""
+            };
+            sb.AppendLine($"- ID: {w.Id}, {w.EarliestDate:MMM d, yyyy} – {w.LatestDate:MMM d, yyyy}{timePref}, with {therapistPref}");
+        }
+        return sb.ToString();
+    }
+
+    private async Task<string> LeaveWaitlist(int waitlistEntryId)
+    {
+        var user = _currentUserService.Principal;
+        if (user?.Identity?.Name == null) return "Error: User is not authenticated.";
+
+        var patient = await _dbContext.Patients.AsNoTracking().FirstOrDefaultAsync(p => p.Email == user.Identity.Name);
+        if (patient == null) return "Error: Patient record not found for the current user.";
+
+        var entry = await _dbContext.WaitlistEntries.FindAsync(waitlistEntryId);
+        if (entry == null) return $"Error: Waitlist entry with ID {waitlistEntryId} not found.";
+        if (entry.PatientId != patient.Id) return "Error: You are not authorized to remove this waitlist entry.";
+
+        try
+        {
+            entry.Cancel();
+            await _dbContext.SaveChangesAsync();
+            return $"Removed waitlist entry {waitlistEntryId}.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            return $"Could not remove waitlist entry: {ex.Message}";
         }
     }
 }
