@@ -2,6 +2,7 @@
   <Project Path="ClinicScheduler.Core/ClinicScheduler.Core.csproj" />
   <Project Path="ClinicScheduler.Core.Tests/ClinicScheduler.Core.Tests.csproj" />
   <Project Path="ClinicScheduler.Infrastructure/ClinicScheduler.Infrastructure.csproj" />
+  <Project Path="ClinicScheduler.Mcp/ClinicScheduler.Mcp.csproj" />
   <Project Path="ClinicScheduler.Shared/ClinicScheduler.Shared.csproj" />
   <Project Path="ClinicScheduler.Web.Client/ClinicScheduler.Web.Client.csproj" />
   <Project Path="ClinicScheduler.Web/ClinicScheduler.Web.csproj" />

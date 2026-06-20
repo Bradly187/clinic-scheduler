@@ -17,6 +17,15 @@ A web-based scheduling system for managing appointments at a pain management cli
 **Why Agents?**
 Traditional rule-based chatbots fail to handle the nuanced, natural language requests of patients (e.g., "Can I move my Thursday appointment to next Tuesday morning?"). By using an Agentic approach with **Tools/Skills**, the LLM dynamically understands intent and executes strict C# backend logic (`get_appointments`, `cancel_any_appointment`) to enforce business rules (e.g., maximum 12 concurrent patients, 8am-5pm windows) safely and securely.
 
+### Course concepts demonstrated
+
+| Concept | How this project demonstrates it |
+|---|---|
+| **Agent skills** | Filesystem-discovered `SKILL.md` skills (`SkillRegistry` parses frontmatter; `SkillExecutor` runs them) — [details below](#skills-as-markdown). |
+| **MCP server** | A standalone Model Context Protocol server (`ClinicScheduler.Mcp`) exposes the scheduling tools to any MCP client (Claude Desktop, ADK, MCP Inspector) — [details below](#-mcp-server). |
+| **Security features** | Role-based authorization enforced in C# (not just prompts), code-enforced two-step confirmation for destructive actions, secret hygiene, auth-gated agent endpoint — [details below](#guardrails--security). |
+| **Tool use & context injection** *(bonus)* | An OpenAI-style tool-calling loop with the logged-in user's identity and roles injected into the system prompt. |
+
 ## 🧠 Agent Architecture
 
 1. **Cloud AI Integration:** The agent is powered by Google's Gemini API, utilizing the OpenAI compatibility endpoint for seamless tool-calling and JSON schema definitions.
@@ -58,6 +67,29 @@ Skills/
 - **`SkillExecutor`** holds the matching JSON tool schema and the C# implementation for each skill. **Authorization is enforced in C#** (e.g. only Staff/Admin roles can call `cancel_any_appointment`), so a misbehaving model cannot escalate privileges.
 
 This separation lets you adjust how a tool is *described* to the model (the markdown) independently from how it is *executed* (the C# code).
+
+## 🔌 MCP Server
+
+Beyond the in-app Gemini agent, the same scheduling capabilities are exposed over the
+**Model Context Protocol** by a standalone server, **`ClinicScheduler.Mcp`**. Any MCP-capable
+client — Claude Desktop, an ADK agent, or the MCP Inspector — can connect and call:
+
+`list_therapists` · `get_appointments` · `schedule_appointment` · `cancel_appointment`
+
+```mermaid
+flowchart LR
+    Client([MCP client<br/>Claude Desktop / ADK / Inspector]) <-->|stdio JSON-RPC| Mcp[ClinicScheduler.Mcp]
+    Mcp -->|reuses| Svc[AppointmentSchedulingService]
+    Svc -->|same business rules| DB[(PostgreSQL)]
+```
+
+The MCP tools **reuse the exact domain logic** the web app uses (`AppointmentSchedulingService`
++ EF Core repositories), so operating-hours, conflict, and capacity rules are identical. The
+destructive `cancel_appointment` carries the same **code-enforced two-step confirmation**. See
+[`ClinicScheduler.Mcp/README.md`](ClinicScheduler/ClinicScheduler.Mcp/README.md) for setup and a
+Claude Desktop config snippet.
+
+### Guardrails & security
 
 > **Guardrails:** Cancellations are protected by a **code-enforced two-step
 > confirmation**. The first call to a cancel tool returns a `CONFIRMATION REQUIRED`
