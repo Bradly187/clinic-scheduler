@@ -206,6 +206,48 @@ public class SkillExecutor : ISkillExecutor
                     }
                 }
             },
+            "reschedule_appointment" => new JsonObject
+            {
+                ["type"] = "function",
+                ["function"] = new JsonObject
+                {
+                    ["name"] = "reschedule_appointment",
+                    ["description"] = "Reschedules an existing appointment to a new date/time (optionally with a different therapist). Two-step: call first without 'confirmed' to preview, then again with confirmed=true. It books the new slot first (fully validated) and only then cancels the original — so the original is kept if the new slot can't be booked.",
+                    ["parameters"] = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["appointmentId"] = new JsonObject
+                            {
+                                ["type"] = "integer",
+                                ["description"] = "The ID of the existing appointment to move."
+                            },
+                            ["date"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["description"] = "New appointment date in YYYY-MM-DD format."
+                            },
+                            ["startTime"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["description"] = "New start time in HH:MM (24-hour) format."
+                            },
+                            ["therapistName"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["description"] = "Optional different therapist (full or partial name). Omit to keep the same therapist."
+                            },
+                            ["confirmed"] = new JsonObject
+                            {
+                                ["type"] = "boolean",
+                                ["description"] = "Set true ONLY after the user has explicitly confirmed. Omit or false to preview first."
+                            }
+                        },
+                        ["required"] = new JsonArray { "appointmentId", "date", "startTime" }
+                    }
+                }
+            },
             "join_waitlist" => new JsonObject
             {
                 ["type"] = "function",
@@ -314,6 +356,12 @@ public class SkillExecutor : ISkillExecutor
                     arguments?["date"]?.GetValue<string>(),
                     arguments?["startTime"]?.GetValue<string>(),
                     arguments?["patientName"]?.GetValue<string>()),
+                "reschedule_appointment" => await RescheduleAppointment(
+                    ParseOptionalInt(arguments?["appointmentId"]) ?? 0,
+                    arguments?["date"]?.GetValue<string>(),
+                    arguments?["startTime"]?.GetValue<string>(),
+                    arguments?["therapistName"]?.GetValue<string>(),
+                    ParseBool(arguments?["confirmed"])),
                 "join_waitlist" => await JoinWaitlist(
                     arguments?["earliestDate"]?.GetValue<string>(),
                     arguments?["latestDate"]?.GetValue<string>(),
@@ -606,6 +654,87 @@ public class SkillExecutor : ISkillExecutor
         {
             return $"Could not schedule appointment: {ex.Message}";
         }
+    }
+
+    private async Task<string> RescheduleAppointment(
+        int appointmentId, string? date, string? startTime, string? therapistName, bool confirmed)
+    {
+        var user = _currentUserService.Principal;
+        if (user == null) return "Error: User is not authenticated.";
+
+        if (string.IsNullOrWhiteSpace(date)) return "Error: date is required (YYYY-MM-DD).";
+        if (string.IsNullOrWhiteSpace(startTime)) return "Error: startTime is required (HH:MM).";
+        if (!DateOnly.TryParse(date, out var parsedDate))
+            return $"Error: Could not parse date '{date}'. Use YYYY-MM-DD format.";
+        if (!TimeOnly.TryParse(startTime, out var parsedTime))
+            return $"Error: Could not parse startTime '{startTime}'. Use HH:MM (24-hour) format.";
+
+        // Load the existing appointment (tracked) with the nav properties we may carry over.
+        var existing = await _dbContext.Appointments
+            .Include(a => a.Therapist)
+            .Include(a => a.TherapyType)
+            .FirstOrDefaultAsync(a => a.Id == appointmentId);
+        if (existing == null) return $"Error: Appointment with ID {appointmentId} not found.";
+
+        if (existing.Status is AppointmentStatus.Canceled or AppointmentStatus.Completed)
+            return $"Error: Cannot reschedule an appointment that is {existing.Status}.";
+
+        // Authorization: patients may only reschedule their own appointment.
+        var isStaffOrAbove = user.IsInRole(RoleNames.Admin) || user.IsInRole(RoleNames.ClinicManager)
+                          || user.IsInRole(RoleNames.Staff) || user.IsInRole(RoleNames.Therapist);
+        if (!isStaffOrAbove)
+        {
+            if (user.Identity?.Name == null) return "Error: User is not authenticated.";
+            var patients = await _patientRepository.FindAsync(p => p.Email == user.Identity.Name);
+            var patient = patients.FirstOrDefault();
+            if (patient == null) return "Error: Patient record not found for the current user.";
+            if (existing.PatientId != patient.Id) return "Error: You are not authorized to reschedule this appointment.";
+        }
+
+        // Resolve the target therapist (default: keep the same one).
+        var newTherapistId = existing.TherapistId;
+        var therapistChange = "";
+        if (!string.IsNullOrWhiteSpace(therapistName))
+        {
+            var therapists = await _therapistRepository.FindAsync(
+                t => t.FirstName.Contains(therapistName) || t.LastName.Contains(therapistName));
+            if (!therapists.Any()) return $"Error: No therapist found matching '{therapistName}'.";
+            if (therapists.Count > 1)
+                return $"Multiple therapists match '{therapistName}': {string.Join(", ", therapists.Select(t => $"{t.FirstName} {t.LastName}"))}. Please be more specific.";
+            newTherapistId = therapists.First().Id;
+            therapistChange = $" with {therapists.First().FirstName} {therapists.First().LastName}";
+        }
+
+        var newStart = new DateTime(parsedDate.Year, parsedDate.Month, parsedDate.Day,
+            parsedTime.Hour, parsedTime.Minute, 0, DateTimeKind.Utc);
+
+        // Code-enforced confirmation: this cancels the original, so never proceed without confirmed=true.
+        if (!confirmed)
+            return $"CONFIRMATION REQUIRED: You are about to reschedule appointment {appointmentId} from "
+                 + $"{FormatClinicTime(existing.StartTime)} to {FormatClinicTime(newStart)}{therapistChange}. "
+                 + $"This books the new slot and cancels the original. Show these details to the user and ask them to "
+                 + $"confirm. Only if they agree, call reschedule_appointment again with the same details and confirmed=true.";
+
+        // Book the new slot first (fully validated). If this fails, the original is left untouched.
+        Appointment newAppointment;
+        try
+        {
+            newAppointment = await _schedulingService.CreateAppointmentAsync(
+                existing.PatientId, newTherapistId, existing.RoomId, newStart, therapyType: existing.TherapyType);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            return $"Could not reschedule: {ex.Message} Your original appointment (ID {appointmentId}, "
+                 + $"{FormatClinicTime(existing.StartTime)}) is unchanged.";
+        }
+
+        // New slot secured — now cancel the original.
+        existing.Cancel();
+        await _appointmentRepository.UpdateAsync(existing);
+        _appointmentEventService.NotifyAppointmentsChanged();
+
+        return $"Rescheduled. Appointment {appointmentId} ({FormatClinicTime(existing.StartTime)}) was canceled and "
+             + $"replaced by new appointment {newAppointment.Id} on {FormatClinicTime(newAppointment.StartTime)}{therapistChange}.";
     }
 
     private async Task<string> JoinWaitlist(

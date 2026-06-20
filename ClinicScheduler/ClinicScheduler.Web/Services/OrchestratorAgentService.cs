@@ -47,10 +47,10 @@ public class OrchestratorAgentService : IAgentService
             "scheduling_agent",
             "Books, cancels, or reschedules appointments — use for any request that changes the schedule.",
             "You are the Scheduling specialist for a pain-management clinic. You book, cancel, and reschedule " +
-            "appointments using your tools. To cancel you must follow the tool's two-step confirmation: preview " +
+            "appointments using your tools. Cancelling and rescheduling both use a two-step confirmation: preview " +
             "first, then call again with confirmed=true only after the user agrees. Look up appointments when you " +
             "need an ID. Present results clearly.",
-            ["get_my_appointments", "get_appointments", "schedule_appointment", "cancel_my_appointment", "cancel_any_appointment"]),
+            ["get_my_appointments", "get_appointments", "schedule_appointment", "reschedule_appointment", "cancel_my_appointment", "cancel_any_appointment"]),
 
         new SpecialistAgent(
             "waitlist_agent",

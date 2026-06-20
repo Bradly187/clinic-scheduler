@@ -299,4 +299,33 @@ public class SkillExecutorTests : IDisposable
         var afterResult = await _executor.ExecuteAsync("get_my_waitlist", null);
         afterResult.Should().Contain("no active waitlist entries");
     }
+
+    [Fact]
+    public async Task ExecuteAsync_RescheduleAppointment_RequiresConfirmation_AndDoesNotCancelOriginal()
+    {
+        SetupUser("admin@test.com", RoleNames.Admin);
+
+        var patient = new Patient("John", "Doe", "patient@test.com", new DateOnly(1990, 1, 1)) { Id = 1 };
+        var therapist = new Therapist("Jane", "Smith", "jane@test.com") { Id = 1 };
+        var room = new Room("Room 1", 1, null!) { Id = 1 };
+        var apt = new Appointment(patient, therapist, room, DateTime.UtcNow.AddDays(1), TimeSpan.FromHours(1)) { Id = 100 };
+        _dbContext.Patients.Add(patient);
+        _dbContext.Therapists.Add(therapist);
+        _dbContext.Rooms.Add(room);
+        _dbContext.Appointments.Add(apt);
+        await _dbContext.SaveChangesAsync();
+
+        // No "confirmed" → must preview and must NOT touch the scheduling service (which is null here)
+        // nor cancel the original.
+        var result = await _executor.ExecuteAsync("reschedule_appointment", new JsonObject
+        {
+            ["appointmentId"] = 100,
+            ["date"] = "2026-08-01",
+            ["startTime"] = "10:00"
+        });
+
+        result.Should().Contain("CONFIRMATION REQUIRED");
+        var unchanged = await _dbContext.Appointments.FindAsync(100);
+        unchanged!.Status.Should().Be(AppointmentStatus.Scheduled);
+    }
 }
