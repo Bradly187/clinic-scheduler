@@ -72,6 +72,10 @@ public class SkillRegistry : ISkillRegistry
         foreach (var skill in _skills)
         {
             sb.AppendLine($"- {skill.Name}: {skill.Description}");
+            if (!string.IsNullOrWhiteSpace(skill.Instructions))
+            {
+                sb.AppendLine($"  Instructions: {skill.Instructions}");
+            }
         }
         return sb.ToString();
     }

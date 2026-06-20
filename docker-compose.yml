@@ -27,10 +27,12 @@ services:
     ports:
       - "8081:8080"
     environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__DefaultConnection: >-
         Host=db;Database=clinic_scheduler;Username=postgres;Password=${POSTGRES_PASSWORD:-devpassword}
       SeedAdmin__Password: ${SEED_ADMIN_PASSWORD:-admin1234}
+      Gemini__ApiKey: ${GEMINI_API_KEY}
+      Gemini__Model: "gemini-2.5-flash"
     depends_on:
       db:
         condition: service_healthy   # wait until Postgres is ready before starting

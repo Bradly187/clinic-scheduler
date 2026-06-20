@@ -15,6 +15,12 @@ obj/
 appsettings.Development.json
 appsettings.Local.json
 
+# Environment files holding real secrets (e.g. GEMINI_API_KEY).
+# Commit .env.example only — never the real .env.
+.env
+.env.*
+!.env.example
+
 # OS files
 .DS_Store
 Thumbs.db

@@ -25,8 +25,8 @@ public class AgentServiceTests
         _mockUserService = new Mock<ClinicScheduler.Core.Interfaces.ICurrentUserService>();
         
         var inMemorySettings = new Dictionary<string, string?> {
-            {"Ollama:Model", "test-model"},
-            {"Ollama:Endpoint", "http://test-endpoint/v1/chat"}
+            {"Gemini:Model", "test-model"},
+            {"Gemini:ApiKey", "test-api-key"}
         };
         _config = new ConfigurationBuilder()
             .AddInMemoryCollection(inMemorySettings)
@@ -101,7 +101,7 @@ public class AgentServiceTests
         request2Tools[0]?["function"]?["name"]?.GetValue<string>().Should().Be("test_skill");
     }
 
-    // Helper methods to create mocked Ollama responses
+    // Helper methods to create mocked Gemini (OpenAI-compatible) responses
     private JsonObject CreateMockResponse(string content)
     {
         return new JsonObject

@@ -7,4 +7,9 @@ Call this tool immediately with either the `appointmentId` or the `patientName` 
 
 If providing the patient name results in multiple appointments, the tool will return a list of appointments. You MUST display this entire list of appointments (including their IDs and start times) to the user so they can see their options, and then ask them to choose or provide the specific appointment ID of the one they want to cancel. Do NOT ask for the ID without showing the list.
 
-IMPORTANT: Before calling this tool with a specific appointmentId, always state the appointment ID and patient name you are about to cancel, and explicitly ask the user to confirm that they want to proceed. Do not cancel without confirmation.
+This tool enforces a two-step confirmation in code:
+
+1. **Preview:** Call it with the `appointmentId` (or `patientName`) and leave `confirmed` unset. When a single appointment is identified, the tool returns a `CONFIRMATION REQUIRED` message with the appointment's date and time. Relay those details to the user and ask them to confirm.
+2. **Confirm:** Only after the user explicitly agrees, call the tool again with the specific `appointmentId` and `confirmed=true` to actually cancel.
+
+Never set `confirmed=true` on the first call or without the user's explicit approval.

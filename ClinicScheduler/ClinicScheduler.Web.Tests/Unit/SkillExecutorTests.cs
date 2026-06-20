@@ -9,6 +9,7 @@ using ClinicScheduler.Web;
 using ClinicScheduler.Web.Services.Skills;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Moq;
 using Xunit;
 
@@ -41,6 +42,10 @@ public class SkillExecutorTests : IDisposable
             .Options;
         _dbContext = new ClinicDbContext(options);
 
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Clinic:TimeZoneLabel"] = "clinic time" })
+            .Build();
+
         _executor = new SkillExecutor(
             _mockUserService.Object,
             _mockAppointmentRepo.Object,
@@ -50,7 +55,8 @@ public class SkillExecutorTests : IDisposable
             _mockRoomRepo.Object,
             null!,  // AppointmentSchedulingService not exercised in these tests
             _mockAppointmentEventService.Object,
-            _dbContext);
+            _dbContext,
+            config);
     }
 
     public void Dispose() => _dbContext.Dispose();
@@ -137,7 +143,7 @@ public class SkillExecutorTests : IDisposable
     public async Task ExecuteAsync_CancelAnyAppointment_AllowsAdminRole()
     {
         SetupUser("admin@test.com", RoleNames.Admin);
-        var args = new JsonObject { ["appointmentId"] = 100 };
+        var args = new JsonObject { ["appointmentId"] = 100, ["confirmed"] = true };
 
         var patient = new Patient("John", "Doe", "patient@test.com", new DateOnly(1990, 1, 1)) { Id = 1 };
         var therapist = new Therapist("Jane", "Smith", "jane@test.com");
@@ -154,10 +160,32 @@ public class SkillExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task ExecuteAsync_CancelAnyAppointment_RequiresConfirmation_WhenNotConfirmed()
+    {
+        SetupUser("admin@test.com", RoleNames.Admin);
+        // No "confirmed" flag — the tool must preview, not cancel.
+        var args = new JsonObject { ["appointmentId"] = 100 };
+
+        var patient = new Patient("John", "Doe", "patient@test.com", new DateOnly(1990, 1, 1)) { Id = 1 };
+        var therapist = new Therapist("Jane", "Smith", "jane@test.com");
+        var room = new Room("Room 1", 1, null!);
+        var apt = new Appointment(patient, therapist, room, DateTime.UtcNow.AddDays(1), TimeSpan.FromHours(1)) { Id = 100 };
+
+        _mockAppointmentRepo.Setup(r => r.GetByIdAsync(100, It.IsAny<CancellationToken>())).ReturnsAsync(apt);
+
+        var result = await _executor.ExecuteAsync("cancel_any_appointment", args);
+
+        result.Should().Contain("CONFIRMATION REQUIRED");
+        result.Should().Contain("100");
+        _mockAppointmentRepo.Verify(r => r.UpdateAsync(It.IsAny<Appointment>(), It.IsAny<CancellationToken>()), Times.Never);
+        apt.Status.Should().Be(AppointmentStatus.Scheduled);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_CancelAnyAppointment_PatientName_CancelsDirectly_WhenSingleAppointmentFound()
     {
         SetupUser("admin@test.com", RoleNames.Admin);
-        var args = new JsonObject { ["patientName"] = "John Doe" };
+        var args = new JsonObject { ["patientName"] = "John Doe", ["confirmed"] = true };
 
         var patient = new Patient("John", "Doe", "patient@test.com", new DateOnly(1990, 1, 1)) { Id = 1 };
         var therapist = new Therapist("Jane", "Smith", "jane@test.com");

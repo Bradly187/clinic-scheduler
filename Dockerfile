@@ -18,7 +18,6 @@ COPY ClinicScheduler/ ./ClinicScheduler/
 
 # Publish in Release mode to /app/publish
 RUN dotnet publish ClinicScheduler/ClinicScheduler.Web/ClinicScheduler.Web.csproj \
-    --no-restore \
     -c Release \
     -o /app/publish
 

@@ -505,46 +505,58 @@
 
     private async Task SubmitRequestAsync()
     {
-        await using var DbContext = await DbFactory.CreateDbContextAsync();
-        var patient = await DbContext.Patients.FindAsync(_currentPatientId);
-        if (patient is null) return;
-
-        Therapist? preferredTherapist = null;
-        if (_reqTherapistId.HasValue)
+        try
         {
-            preferredTherapist = await DbContext.Therapists.FindAsync(_reqTherapistId.Value);
-        }
+            await using var DbContext = await DbFactory.CreateDbContextAsync();
+            var patient = await DbContext.Patients.FindAsync(_currentPatientId);
+            if (patient is null)
+            {
+                Snackbar.Add("Patient record not found. Please contact support.", Severity.Error);
+                return;
+            }
 
-        // Compute preferred datetime if patient specified one
-        DateTime preferredDt = DateTime.UtcNow;
-        if (_reqDate.HasValue)
+            Therapist? preferredTherapist = null;
+            if (_reqTherapistId.HasValue)
+            {
+                preferredTherapist = await DbContext.Therapists.FindAsync(_reqTherapistId.Value);
+            }
+
+            // Compute preferred datetime if patient specified one
+            DateTime preferredDt = DateTime.UtcNow;
+            if (_reqDate.HasValue)
+            {
+                var minutes = _reqTimeMinutes ?? 9 * 60;
+                preferredDt = _reqDate.Value.Date.AddMinutes(minutes).ToUniversalTime();
+            }
+
+            var request = new AppointmentRequest(patient, _reqNotes, preferredTherapist);
+            // Store preferred date/time on the entity
+            if (_reqDate.HasValue)
+                request.SetPreferredDateTime(preferredDt);
+
+            DbContext.AppointmentRequests.Add(request);
+            await DbContext.SaveChangesAsync();
+
+            _requestDialogOpen = false;
+            _reqNotes = null;
+            _reqTherapistId = null;
+            _reqDate = null;
+            _reqTimeMinutes = null;
+
+            _myRequests = await DbContext.AppointmentRequests
+                .Include(r => r.PreferredTherapist)
+                .Where(r => r.PatientId == _currentPatientId)
+                .OrderByDescending(r => r.CreatedAt)
+                .Take(10)
+                .ToListAsync();
+
+            Snackbar.Add("Request sent! Staff will review it shortly.", Severity.Success);
+        }
+        catch (Exception ex)
         {
-            var minutes = _reqTimeMinutes ?? 9 * 60;
-            preferredDt = _reqDate.Value.Date.AddMinutes(minutes).ToUniversalTime();
+            Console.WriteLine($"[DEBUG EXCEPTION] {ex}");
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
         }
-
-        var request = new AppointmentRequest(patient, _reqNotes, preferredTherapist);
-        // Store preferred date/time on the entity
-        if (_reqDate.HasValue)
-            request.SetPreferredDateTime(preferredDt);
-
-        DbContext.AppointmentRequests.Add(request);
-        await DbContext.SaveChangesAsync();
-
-        _requestDialogOpen = false;
-        _reqNotes = null;
-        _reqTherapistId = null;
-        _reqDate = null;
-        _reqTimeMinutes = null;
-
-        _myRequests = await DbContext.AppointmentRequests
-            .Include(r => r.PreferredTherapist)
-            .Where(r => r.PatientId == _currentPatientId)
-            .OrderByDescending(r => r.CreatedAt)
-            .Take(10)
-            .ToListAsync();
-
-        Snackbar.Add("Request sent! Staff will review it shortly.", Severity.Success);
     }
 
     private void OpenApproveDialog(AppointmentRequest req)
