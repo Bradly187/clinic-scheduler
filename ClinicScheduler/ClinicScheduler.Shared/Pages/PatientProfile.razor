@@ -134,7 +134,7 @@ else
                         <MudTh>Notes</MudTh>
                     </HeaderContent>
                     <RowTemplate Context="appt">
-                        <MudTd>@appt.StartTime.ToLocalTime().ToString("ddd, MMM d yyyy h:mm tt")</MudTd>
+                        <MudTd>@appt.StartTime.ToString("ddd, MMM d yyyy h:mm tt")</MudTd>
                         <MudTd>@appt.Therapist?.FullName</MudTd>
                         <MudTd>@appt.Room?.Name</MudTd>
                         <MudTd>

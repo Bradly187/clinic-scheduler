@@ -258,7 +258,7 @@
                 {
                     var user = await db.Users.FirstOrDefaultAsync(u => u.UserName == f.Appointment.Patient.Email);
                     if (user is null) continue;
-                    var local = f.Appointment.StartTime.ToLocalTime();
+                    var local = f.Appointment.StartTime;
                     db.Notifications.Add(new Notification(
                         user.Id,
                         NotificationType.WaitlistFulfilled,

@@ -407,7 +407,7 @@
             await CreatePatientNotificationAsync(DbContext, appt,
                 NotificationType.SchedulingConflict,
                 "Appointment Canceled",
-                $"Your appointment on {appt.StartTime.ToLocalTime():ddd, MMM d h:mm tt} has been canceled.");
+                $"Your appointment on {appt.StartTime:ddd, MMM d h:mm tt} has been canceled.");
 
             await DbContext.SaveChangesAsync();
             Snackbar.Add("Appointment canceled.", Severity.Info);
@@ -446,7 +446,7 @@
             try
             {
                 rescheduled = await SchedulingService.RescheduleAfterMissedAsync(tracked);
-                rescheduleMsg = $"Rescheduled to {rescheduled.StartTime.ToLocalTime():ddd, MMM d h:mm tt}.";
+                rescheduleMsg = $"Rescheduled to {rescheduled.StartTime:ddd, MMM d h:mm tt}.";
             }
             catch (InvalidOperationException)
             {
@@ -457,7 +457,7 @@
             await CreatePatientNotificationAsync(DbContext, _missedTarget,
                 NotificationType.MissedAppointment,
                 "Appointment Missed",
-                $"Your appointment on {_missedTarget.StartTime.ToLocalTime():ddd, MMM d h:mm tt} was recorded as missed. {rescheduleMsg}",
+                $"Your appointment on {_missedTarget.StartTime:ddd, MMM d h:mm tt} was recorded as missed. {rescheduleMsg}",
                 rescheduled?.Id);
 
             await DbContext.SaveChangesAsync();

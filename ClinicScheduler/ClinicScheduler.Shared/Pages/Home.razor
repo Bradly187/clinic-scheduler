@@ -96,7 +96,7 @@
                     <RowTemplate Context="req">
                         <MudTd>@req.Patient?.FullName</MudTd>
                         <MudTd>@(req.PreferredTherapist?.FullName ?? "No preference")</MudTd>
-                        <MudTd>@(req.PreferredDateTime == req.CreatedAt ? "—" : req.PreferredDateTime.ToLocalTime().ToString("MMM d, h:mm tt"))</MudTd>
+                        <MudTd>@(req.PreferredDateTime == req.CreatedAt ? "—" : req.PreferredDateTime.ToString("MMM d, h:mm tt"))</MudTd>
                         <MudTd>@(string.IsNullOrWhiteSpace(req.Notes) ? "—" : req.Notes)</MudTd>
                         <MudTd>@req.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</MudTd>
                         <MudTd>
@@ -240,7 +240,7 @@
                     <MudTh>Status</MudTh>
                 </HeaderContent>
                 <RowTemplate Context="appt">
-                    <MudTd>@appt.StartTime.ToLocalTime().ToString("ddd, MMM d h:mm tt")</MudTd>
+                    <MudTd>@appt.StartTime.ToString("ddd, MMM d h:mm tt")</MudTd>
                     <MudTd>@appt.Therapist?.FullName</MudTd>
                     <MudTd>@appt.Room?.Name</MudTd>
                     <MudTd>
@@ -268,7 +268,7 @@
                         <MudTh>Submitted</MudTh>
                     </HeaderContent>
                     <RowTemplate Context="req">
-                        <MudTd>@(req.PreferredDateTime == req.CreatedAt ? "—" : req.PreferredDateTime.ToLocalTime().ToString("ddd, MMM d h:mm tt"))</MudTd>
+                        <MudTd>@(req.PreferredDateTime == req.CreatedAt ? "—" : req.PreferredDateTime.ToString("ddd, MMM d h:mm tt"))</MudTd>
                         <MudTd>@(string.IsNullOrWhiteSpace(req.Notes) ? "—" : req.Notes)</MudTd>
                         <MudTd>
                             <MudChip T="string" Size="Size.Small" Color="@RequestStatusColor(req.Status)">
@@ -521,12 +521,14 @@
                 preferredTherapist = await DbContext.Therapists.FindAsync(_reqTherapistId.Value);
             }
 
-            // Compute preferred datetime if patient specified one
+            // Compute preferred datetime if patient specified one.
+            // Times are clinic-local wall-clock; the timestamptz column requires Utc kind,
+            // so we tag the wall-clock value as UTC without shifting it (no time-zone conversion).
             DateTime preferredDt = DateTime.UtcNow;
             if (_reqDate.HasValue)
             {
                 var minutes = _reqTimeMinutes ?? 9 * 60;
-                preferredDt = _reqDate.Value.Date.AddMinutes(minutes).ToUniversalTime();
+                preferredDt = DateTime.SpecifyKind(_reqDate.Value.Date.AddMinutes(minutes), DateTimeKind.Utc);
             }
 
             var request = new AppointmentRequest(patient, _reqNotes, preferredTherapist);
@@ -596,7 +598,7 @@
 
             await NotifyPatientAsync(_approveTarget.PatientId, NotificationType.RequestApproved,
                 "Appointment Confirmed",
-                $"Your appointment request has been approved and booked for {_approveTarget.PreferredDateTime.ToLocalTime():ddd, MMM d 'at' h:mm tt}.",
+                $"Your appointment request has been approved and booked for {_approveTarget.PreferredDateTime:ddd, MMM d 'at' h:mm tt}.",
                 appt.Id);
 
             _approveDialogOpen = false;
