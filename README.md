@@ -62,10 +62,12 @@ flowchart TD
     C -->|info / lookups| Info[Info agent<br/>get_my_appointments, get_appointments]
     C -->|book / cancel / reschedule| Sched[Scheduling agent<br/>schedule / reschedule / cancel skills]
     C -->|join / list / leave waitlist| Wait[Waitlist agent<br/>join / get / leave waitlist]
+    C -->|treatment plans| Plan[Treatment-plan agent<br/>view / create / generate series]
     C -->|symptom guidance| Triage[Triage agent<br/>advisory, no data access]
     Info --> R[answer]
     Sched --> R
     Wait --> R
+    Plan --> R
     Triage --> R
     R --> C
     C --> Out([Reply to user])
@@ -95,7 +97,10 @@ Skills/
 ├── reschedule_appointment/SKILL.md   # composite: book new slot, then cancel old
 ├── join_waitlist/SKILL.md            # join the waitlist for a date window
 ├── get_my_waitlist/SKILL.md          # list own active waitlist entries
-└── leave_waitlist/SKILL.md           # remove a waitlist entry
+├── leave_waitlist/SKILL.md           # remove a waitlist entry
+├── get_my_treatment_plan/SKILL.md    # view a patient's treatment plan
+├── create_treatment_plan/SKILL.md    # staff: create a treatment plan
+└── generate_plan_appointments/SKILL.md  # staff: book the recurring session series
 ```
 
 - **`SkillRegistry`** discovers every `SKILL.md` at startup, parses its YAML frontmatter (`name`, `description`) and instruction body, and assembles the system-prompt tool catalog.

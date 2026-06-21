@@ -54,6 +54,7 @@ public class SkillExecutorTests : IDisposable
             _mockTherapyTypeRepo.Object,
             _mockRoomRepo.Object,
             null!,  // AppointmentSchedulingService not exercised in these tests
+            null!,  // TreatmentPlanScheduleService not exercised in these tests
             _mockAppointmentEventService.Object,
             _dbContext,
             config);
@@ -327,5 +328,51 @@ public class SkillExecutorTests : IDisposable
         result.Should().Contain("CONFIRMATION REQUIRED");
         var unchanged = await _dbContext.Appointments.FindAsync(100);
         unchanged!.Status.Should().Be(AppointmentStatus.Scheduled);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CreateTreatmentPlan_RejectsPatientRole()
+    {
+        SetupUser("patient@test.com", RoleNames.Patient);
+        var args = new JsonObject
+        {
+            ["patientName"] = "John Doe",
+            ["therapistName"] = "Jane Smith",
+            ["frequencyPerWeek"] = 3,
+            ["totalDays"] = 30,
+            ["startDate"] = "2026-08-01"
+        };
+
+        var result = await _executor.ExecuteAsync("create_treatment_plan", args);
+
+        result.Should().Contain("Unauthorized. Only Staff or Admins");
+        _dbContext.TreatmentPlans.Count().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CreateTreatmentPlan_CreatesPlan_AndGetReturnsIt()
+    {
+        SetupUser("admin@test.com", RoleNames.Admin);
+        var patient = new Patient("John", "Doe", "patient@test.com", new DateOnly(1990, 1, 1)) { Id = 1 };
+        var therapist = new Therapist("Jane", "Smith", "jane@test.com") { Id = 1 };
+        _dbContext.Patients.Add(patient);
+        _dbContext.Therapists.Add(therapist);
+        await _dbContext.SaveChangesAsync();
+
+        var createResult = await _executor.ExecuteAsync("create_treatment_plan", new JsonObject
+        {
+            ["patientName"] = "John Doe",
+            ["therapistName"] = "Jane Smith",
+            ["frequencyPerWeek"] = 3,
+            ["totalDays"] = 30,
+            ["startDate"] = "2026-08-01"
+        });
+        createResult.Should().Contain("Created treatment plan");
+        _dbContext.TreatmentPlans.Count().Should().Be(1);
+
+        // Admin can read it back by patient name.
+        var getResult = await _executor.ExecuteAsync("get_my_treatment_plan", new JsonObject { ["patientName"] = "John Doe" });
+        getResult.Should().Contain("Treatment plan for John Doe");
+        getResult.Should().Contain("3x/week for 30 sessions");
     }
 }

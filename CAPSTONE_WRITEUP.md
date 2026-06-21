@@ -35,6 +35,7 @@ system prompt and a *restricted* skill set:
 - **Info agent** — read-only lookups (what appointments do I have?).
 - **Scheduling agent** — booking, cancelling, rescheduling (the write operations).
 - **Waitlist agent** — join the waitlist for a date window, list entries, or leave; the system books the first matching opening automatically.
+- **Treatment-plan agent** — view a patient's plan, create one (staff), and generate its recurring appointment series in one composite booking.
 - **Triage agent** — advisory: maps described symptoms to an appropriate therapy type/specialty.
 
 The Coordinator's *tools are the specialists* (`route_to_*`); routing runs the chosen specialist as a

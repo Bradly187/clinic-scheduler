@@ -23,6 +23,7 @@ public class SkillExecutor : ISkillExecutor
     private readonly IRepository<TherapyType> _therapyTypeRepository;
     private readonly IRepository<Room> _roomRepository;
     private readonly AppointmentSchedulingService _schedulingService;
+    private readonly TreatmentPlanScheduleService _treatmentPlanScheduleService;
     private readonly ClinicScheduler.Shared.Services.IAppointmentEventService _appointmentEventService;
     private readonly ClinicDbContext _dbContext;
 
@@ -41,6 +42,7 @@ public class SkillExecutor : ISkillExecutor
         IRepository<TherapyType> therapyTypeRepository,
         IRepository<Room> roomRepository,
         AppointmentSchedulingService schedulingService,
+        TreatmentPlanScheduleService treatmentPlanScheduleService,
         ClinicScheduler.Shared.Services.IAppointmentEventService appointmentEventService,
         ClinicDbContext dbContext,
         IConfiguration configuration)
@@ -52,6 +54,7 @@ public class SkillExecutor : ISkillExecutor
         _therapyTypeRepository = therapyTypeRepository;
         _roomRepository = roomRepository;
         _schedulingService = schedulingService;
+        _treatmentPlanScheduleService = treatmentPlanScheduleService;
         _appointmentEventService = appointmentEventService;
         _dbContext = dbContext;
         _clinicTimeZoneLabel = configuration["Clinic:TimeZoneLabel"] ?? "clinic time";
@@ -336,6 +339,69 @@ public class SkillExecutor : ISkillExecutor
                     }
                 }
             },
+            "get_my_treatment_plan" => new JsonObject
+            {
+                ["type"] = "function",
+                ["function"] = new JsonObject
+                {
+                    ["name"] = "get_my_treatment_plan",
+                    ["description"] = "Retrieves the current treatment plan for a patient (frequency, duration, therapist, therapies, status). Patients see their own; Staff/Admin can pass a patientName.",
+                    ["parameters"] = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["patientName"] = new JsonObject
+                            {
+                                ["type"] = "string",
+                                ["description"] = "Full or partial name of the patient. Staff/Admin only — patients see their own plan automatically."
+                            }
+                        }
+                    }
+                }
+            },
+            "create_treatment_plan" => new JsonObject
+            {
+                ["type"] = "function",
+                ["function"] = new JsonObject
+                {
+                    ["name"] = "create_treatment_plan",
+                    ["description"] = "Creates a treatment plan for a patient. Staff/Admin only. Frequency must be 2, 3, or 4 sessions per week; total sessions must be 20, 30, or 50.",
+                    ["parameters"] = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["patientName"] = new JsonObject { ["type"] = "string", ["description"] = "Full or partial name of the patient." },
+                            ["therapistName"] = new JsonObject { ["type"] = "string", ["description"] = "Full or partial name of the assigned therapist." },
+                            ["frequencyPerWeek"] = new JsonObject { ["type"] = "integer", ["description"] = "Sessions per week: 2, 3, or 4." },
+                            ["totalDays"] = new JsonObject { ["type"] = "integer", ["description"] = "Total sessions in the plan: 20, 30, or 50." },
+                            ["startDate"] = new JsonObject { ["type"] = "string", ["description"] = "Plan start date in YYYY-MM-DD format." },
+                            ["therapyTypeName"] = new JsonObject { ["type"] = "string", ["description"] = "Optional therapy type to include in the plan." }
+                        },
+                        ["required"] = new JsonArray { "patientName", "therapistName", "frequencyPerWeek", "totalDays", "startDate" }
+                    }
+                }
+            },
+            "generate_plan_appointments" => new JsonObject
+            {
+                ["type"] = "function",
+                ["function"] = new JsonObject
+                {
+                    ["name"] = "generate_plan_appointments",
+                    ["description"] = "Books the recurring appointment series for a treatment plan (composite: schedules many sessions at once). Staff/Admin only. Reports how many sessions were booked vs. left unbooked.",
+                    ["parameters"] = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["treatmentPlanId"] = new JsonObject { ["type"] = "integer", ["description"] = "The ID of the treatment plan to generate appointments for." },
+                            ["preferredTime"] = new JsonObject { ["type"] = "string", ["description"] = "Optional preferred start time in HH:MM (24-hour). Defaults to 09:00." }
+                        },
+                        ["required"] = new JsonArray { "treatmentPlanId" }
+                    }
+                }
+            },
             _ => throw new ArgumentException($"Unknown skill: {skillName}")
         };
     }
@@ -372,6 +438,17 @@ public class SkillExecutor : ISkillExecutor
                     arguments?["patientName"]?.GetValue<string>()),
                 "get_my_waitlist" => await GetMyWaitlist(),
                 "leave_waitlist" => await LeaveWaitlist(ParseOptionalInt(arguments?["waitlistEntryId"]) ?? 0),
+                "get_my_treatment_plan" => await GetMyTreatmentPlan(arguments?["patientName"]?.GetValue<string>()),
+                "create_treatment_plan" => await CreateTreatmentPlan(
+                    arguments?["patientName"]?.GetValue<string>(),
+                    arguments?["therapistName"]?.GetValue<string>(),
+                    ParseOptionalInt(arguments?["frequencyPerWeek"]) ?? 0,
+                    ParseOptionalInt(arguments?["totalDays"]) ?? 0,
+                    arguments?["startDate"]?.GetValue<string>(),
+                    arguments?["therapyTypeName"]?.GetValue<string>()),
+                "generate_plan_appointments" => await GeneratePlanAppointments(
+                    ParseOptionalInt(arguments?["treatmentPlanId"]) ?? 0,
+                    arguments?["preferredTime"]?.GetValue<string>()),
                 _ => $"Error: Unknown skill {skillName}."
             };
         }
@@ -875,6 +952,159 @@ public class SkillExecutor : ISkillExecutor
         catch (InvalidOperationException ex)
         {
             return $"Could not remove waitlist entry: {ex.Message}";
+        }
+    }
+
+    private async Task<string> GetMyTreatmentPlan(string? patientName)
+    {
+        var user = _currentUserService.Principal;
+        if (user == null) return "Error: User is not authenticated.";
+
+        var isStaffOrAbove = user.IsInRole(RoleNames.Admin) || user.IsInRole(RoleNames.ClinicManager)
+                          || user.IsInRole(RoleNames.Staff) || user.IsInRole(RoleNames.Therapist);
+
+        int patientId;
+        string patientLabel;
+        if (isStaffOrAbove && !string.IsNullOrWhiteSpace(patientName))
+        {
+            var matches = await _dbContext.Patients
+                .Where(p => (p.FirstName + " " + p.LastName).Contains(patientName)
+                         || p.FirstName.Contains(patientName) || p.LastName.Contains(patientName))
+                .ToListAsync();
+            if (matches.Count == 0) return $"Error: No patient found matching '{patientName}'.";
+            if (matches.Count > 1)
+                return $"Multiple patients match '{patientName}': {string.Join(", ", matches.Select(p => $"{p.FirstName} {p.LastName} (ID:{p.Id})"))}. Please be more specific.";
+            patientId = matches[0].Id;
+            patientLabel = $"{matches[0].FirstName} {matches[0].LastName}";
+        }
+        else
+        {
+            if (user.Identity?.Name == null) return "Error: User is not authenticated.";
+            var patient = await _dbContext.Patients.FirstOrDefaultAsync(p => p.Email == user.Identity.Name);
+            if (patient == null) return "Error: Patient record not found for the current user.";
+            patientId = patient.Id;
+            patientLabel = $"{patient.FirstName} {patient.LastName}";
+        }
+
+        var plan = await _dbContext.TreatmentPlans
+            .AsNoTracking()
+            .Include(p => p.Therapist)
+            .Include(p => p.TreatmentPlanTherapies)
+                .ThenInclude(tpt => tpt.TherapyType)
+            .Where(p => p.PatientId == patientId)
+            .OrderByDescending(p => p.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (plan == null) return $"No treatment plan on file for {patientLabel}.";
+
+        var therapist = plan.Therapist != null ? $"{plan.Therapist.FirstName} {plan.Therapist.LastName}" : "Unassigned";
+        var therapies = plan.TreatmentPlanTherapies
+            .Select(tpt => tpt.TherapyType?.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n));
+        var therapyList = therapies.Any() ? string.Join(", ", therapies) : "none specified";
+
+        return $"Treatment plan for {patientLabel} (ID {plan.Id}): {plan.FrequencyPerWeek}x/week for {plan.TotalDays} sessions, "
+             + $"{plan.StartDate:MMM d, yyyy} – {plan.EndDate:MMM d, yyyy}, therapist {therapist}, "
+             + $"status {plan.Status}. Therapies: {therapyList}.";
+    }
+
+    private async Task<string> CreateTreatmentPlan(
+        string? patientName, string? therapistName, int frequencyPerWeek, int totalDays,
+        string? startDate, string? therapyTypeName)
+    {
+        var user = _currentUserService.Principal;
+        if (user == null) return "Error: User is not authenticated.";
+
+        var isStaffOrAbove = user.IsInRole(RoleNames.Admin) || user.IsInRole(RoleNames.ClinicManager)
+                          || user.IsInRole(RoleNames.Staff) || user.IsInRole(RoleNames.Therapist);
+        if (!isStaffOrAbove) return "Error: Unauthorized. Only Staff or Admins can create treatment plans.";
+
+        if (string.IsNullOrWhiteSpace(patientName)) return "Error: patientName is required.";
+        if (string.IsNullOrWhiteSpace(therapistName)) return "Error: therapistName is required.";
+        if (frequencyPerWeek is not (2 or 3 or 4)) return "Error: frequencyPerWeek must be 2, 3, or 4.";
+        if (totalDays is not (20 or 30 or 50)) return "Error: totalDays must be 20, 30, or 50.";
+        if (string.IsNullOrWhiteSpace(startDate)) return "Error: startDate is required (YYYY-MM-DD).";
+        if (!DateOnly.TryParse(startDate, out var parsedStart))
+            return $"Error: Could not parse startDate '{startDate}'. Use YYYY-MM-DD format.";
+
+        var patients = await _dbContext.Patients
+            .Where(p => (p.FirstName + " " + p.LastName).Contains(patientName)
+                     || p.FirstName.Contains(patientName) || p.LastName.Contains(patientName)).ToListAsync();
+        if (patients.Count == 0) return $"Error: No patient found matching '{patientName}'.";
+        if (patients.Count > 1)
+            return $"Multiple patients match '{patientName}': {string.Join(", ", patients.Select(p => $"{p.FirstName} {p.LastName} (ID:{p.Id})"))}. Please be more specific.";
+        var patient = patients[0];
+
+        var therapists = await _dbContext.Therapists
+            .Where(t => (t.FirstName + " " + t.LastName).Contains(therapistName)
+                     || t.FirstName.Contains(therapistName) || t.LastName.Contains(therapistName)).ToListAsync();
+        if (therapists.Count == 0) return $"Error: No therapist found matching '{therapistName}'.";
+        if (therapists.Count > 1)
+            return $"Multiple therapists match '{therapistName}': {string.Join(", ", therapists.Select(t => $"{t.FirstName} {t.LastName}"))}. Please be more specific.";
+        var therapist = therapists[0];
+
+        try
+        {
+            var plan = new TreatmentPlan(patient, therapist, frequencyPerWeek, totalDays, parsedStart);
+
+            if (!string.IsNullOrWhiteSpace(therapyTypeName))
+            {
+                var therapyType = await _dbContext.TherapyTypes.FirstOrDefaultAsync(tt => tt.Name.Contains(therapyTypeName));
+                if (therapyType == null) return $"Error: No therapy type found matching '{therapyTypeName}'.";
+                plan.AddTherapy(therapyType);
+            }
+
+            _dbContext.TreatmentPlans.Add(plan);
+            await _dbContext.SaveChangesAsync();
+
+            return $"Created treatment plan {plan.Id} for {patient.FirstName} {patient.LastName}: "
+                 + $"{plan.FrequencyPerWeek}x/week for {plan.TotalDays} sessions, {plan.StartDate:MMM d, yyyy} – {plan.EndDate:MMM d, yyyy}, "
+                 + $"therapist {therapist.FirstName} {therapist.LastName}. "
+                 + $"Use generate_plan_appointments to book the session series.";
+        }
+        catch (ArgumentException ex)
+        {
+            return $"Could not create treatment plan: {ex.Message}";
+        }
+    }
+
+    private async Task<string> GeneratePlanAppointments(int treatmentPlanId, string? preferredTimeStr)
+    {
+        var user = _currentUserService.Principal;
+        if (user == null) return "Error: User is not authenticated.";
+
+        var isStaffOrAbove = user.IsInRole(RoleNames.Admin) || user.IsInRole(RoleNames.ClinicManager)
+                          || user.IsInRole(RoleNames.Staff) || user.IsInRole(RoleNames.Therapist);
+        if (!isStaffOrAbove) return "Error: Unauthorized. Only Staff or Admins can generate plan appointments.";
+
+        var preferredTime = new TimeOnly(9, 0);
+        if (!string.IsNullOrWhiteSpace(preferredTimeStr))
+        {
+            if (!TimeOnly.TryParse(preferredTimeStr, out var t))
+                return $"Error: Could not parse preferredTime '{preferredTimeStr}'. Use HH:MM (24-hour) format.";
+            preferredTime = t;
+        }
+
+        var rooms = await _roomRepository.GetAllAsync();
+        var room = rooms.FirstOrDefault();
+        if (room == null) return "Error: No rooms are available in the system.";
+
+        try
+        {
+            var result = await _treatmentPlanScheduleService.GenerateAppointmentsAsync(
+                treatmentPlanId, room.Id, preferredTime);
+
+            _appointmentEventService.NotifyAppointmentsChanged();
+
+            var summary = $"Generated appointments for treatment plan {treatmentPlanId}: "
+                        + $"booked {result.SessionsBooked} of {result.SessionsRequested} session(s).";
+            if (result.SessionsUnbooked > 0)
+                summary += $" {result.SessionsUnbooked} could not be placed (clinic full within the search window) — try a different time or book them manually.";
+            return summary;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            return $"Could not generate plan appointments: {ex.Message}";
         }
     }
 }
