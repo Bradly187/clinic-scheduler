@@ -21,40 +21,40 @@ public class AppointmentNotificationTests
     [Theory]
     [InlineData(NotificationType.MissedAppointment, 0)]
     [InlineData(NotificationType.UpcomingAppointment, 1)]
-    [InlineData(NotificationType.RequestApproved, 2)]
-    [InlineData(NotificationType.RequestDenied, 3)]
-    [InlineData(NotificationType.SchedulingConflict, 4)]
-    [InlineData(NotificationType.AppointmentRescheduled, 5)]
-    [InlineData(NotificationType.CancellationRequested, 6)]
-    [InlineData(NotificationType.CancellationApproved, 7)]
-    [InlineData(NotificationType.CancellationDenied, 8)]
+    [InlineData(NotificationType.RequestApproved, 4)]
+    [InlineData(NotificationType.RequestDenied, 5)]
+    [InlineData(NotificationType.SchedulingConflict, 6)]
+    [InlineData(NotificationType.AppointmentRescheduled, 7)]
+    [InlineData(NotificationType.CancellationRequested, 8)]
+    [InlineData(NotificationType.CancellationApproved, 9)]
+    [InlineData(NotificationType.CancellationDenied, 10)]
     public void NotificationType_ExistingValues_HaveUnchangedOrdinals(NotificationType type, int expectedOrdinal)
     {
         ((int)type).Should().Be(expectedOrdinal);
     }
 
     [Fact]
-    public void NotificationType_AppointmentCreated_HasOrdinal9()
+    public void NotificationType_AppointmentCreated_HasOrdinal11()
     {
-        ((int)NotificationType.AppointmentCreated).Should().Be(9);
+        ((int)NotificationType.AppointmentCreated).Should().Be(11);
     }
 
     [Fact]
-    public void NotificationType_AppointmentUpdated_HasOrdinal10()
+    public void NotificationType_AppointmentUpdated_HasOrdinal12()
     {
-        ((int)NotificationType.AppointmentUpdated).Should().Be(10);
+        ((int)NotificationType.AppointmentUpdated).Should().Be(12);
     }
 
     [Fact]
-    public void NotificationType_WaitlistFulfilled_HasOrdinal11()
+    public void NotificationType_WaitlistFulfilled_HasOrdinal13()
     {
-        ((int)NotificationType.WaitlistFulfilled).Should().Be(11);
+        ((int)NotificationType.WaitlistFulfilled).Should().Be(13);
     }
 
     [Fact]
-    public void NotificationType_HasExactly12Values()
+    public void NotificationType_HasExactly14Values()
     {
-        Enum.GetValues<NotificationType>().Should().HaveCount(12);
+        Enum.GetValues<NotificationType>().Should().HaveCount(14);
     }
 
     // ---------------------------------------------------------------

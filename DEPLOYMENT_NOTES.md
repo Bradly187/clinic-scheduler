@@ -109,6 +109,7 @@ Set these values:
 POSTGRES_PASSWORD=<any strong password — e.g. Pg$Clinic2026>
 SEED_ADMIN_PASSWORD=<min 10 chars, uppercase, digit, special char — e.g. MyAdmin@2026!>
 ASPNETCORE_ENVIRONMENT=Production
+GEMINI_API_KEY=<your Gemini AI API key>
 ```
 
 Save with `Ctrl+O`, exit with `Ctrl+X`.
@@ -211,6 +212,7 @@ Browser → EC2:8081 → Docker: ClinicScheduler.Web (ASP.NET Core)
 | Admin password | `docker-compose.yml` env var → `${SEED_ADMIN_PASSWORD}` |
 | Environment | `docker-compose.yml` env var → `${ASPNETCORE_ENVIRONMENT}` |
 | All runtime secrets | `/home/ec2-user/clinic-scheduler/.env` (never committed) |
+| AI API Key | `docker-compose.yml` env var → `${GEMINI_API_KEY}` |
 | Migrations | Auto-applied by `db.Database.Migrate()` on startup |
 | Seed data | Applied once by `DatabaseSeeder.SeedAsync` when DB is empty |
 | Swagger UI | Disabled in Production — only available in Development |

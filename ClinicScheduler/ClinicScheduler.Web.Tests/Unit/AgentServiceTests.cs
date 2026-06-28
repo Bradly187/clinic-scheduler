@@ -5,6 +5,7 @@ using ClinicScheduler.Web.Services;
 using ClinicScheduler.Web.Services.Skills;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Moq.Protected;
 using Xunit;
@@ -42,7 +43,7 @@ public class AgentServiceTests
         _mockRegistry.Setup(r => r.GetSystemPromptCatalog()).Returns("MOCK SYSTEM PROMPT");
         _mockRegistry.Setup(r => r.GetAllSkills()).Returns(Enumerable.Empty<SkillMetadata>());
 
-        var agentService = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object);
+        var agentService = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object, NullLogger<AgentService>.Instance);
         var chatHistory = new JsonArray();
 
         var result = await agentService.ProcessMessageAsync(chatHistory);
@@ -76,7 +77,7 @@ public class AgentServiceTests
         _mockExecutor.Setup(e => e.GetToolSchema("test_skill")).Returns(skillSchema);
         _mockExecutor.Setup(e => e.ExecuteAsync("test_skill", It.IsAny<JsonObject?>())).ReturnsAsync("skill result");
 
-        var agentService = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object);
+        var agentService = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object, NullLogger<AgentService>.Instance);
         var chatHistory = new JsonArray
         {
             new JsonObject { ["role"] = "system", ["content"] = "MOCK SYSTEM PROMPT" },

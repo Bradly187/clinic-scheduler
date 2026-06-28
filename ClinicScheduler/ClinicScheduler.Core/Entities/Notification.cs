@@ -4,6 +4,8 @@ public enum NotificationType
 {
     MissedAppointment,
     UpcomingAppointment,
+    UpcomingAppointment48h,
+    UpcomingAppointment24h,
     RequestApproved,
     RequestDenied,
     SchedulingConflict,

@@ -23,6 +23,9 @@ public class Patient
     /// <summary>When SMS consent was last granted or revoked, for the consent audit trail.</summary>
     public DateTime? SmsConsentUpdatedAt { get; private set; }
 
+    /// <summary>Remote ID of this patient in the external EHR/FHIR system.</summary>
+    public string? FhirId { get; private set; }
+
     public string FullName => $"{FirstName} {LastName}";
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -77,6 +80,12 @@ public class Patient
         if (SmsRemindersConsent == consent) return;
         SmsRemindersConsent = consent;
         SmsConsentUpdatedAt = DateTime.UtcNow;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetFhirId(string? fhirId)
+    {
+        FhirId = fhirId;
         UpdatedAt = DateTime.UtcNow;
     }
 }

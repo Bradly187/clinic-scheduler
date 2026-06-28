@@ -154,16 +154,18 @@ public class WaitlistService
 
             foreach (var room in rooms)
             {
-                var (slotStarts, _) = await _schedulingService.GetDailySlotsForRoomAsync(room.Id, day, ct);
                 var locationFullToday = false;
 
-                foreach (var slot in slotStarts)
+                foreach (var therapistId in therapistIds)
                 {
                     if (locationFullToday) break;
-                    if (slot <= DateTime.UtcNow || !entry.Matches(slot)) continue;
+                    
+                    var (slotStarts, _) = await _schedulingService.GetDailySlotsForRoomAsync(room.Id, therapistId, day, ct);
 
-                    foreach (var therapistId in therapistIds)
+                    foreach (var slot in slotStarts)
                     {
+                        if (slot <= DateTime.UtcNow || !entry.Matches(slot)) continue;
+
                         try
                         {
                             var appointment = await _schedulingService.CreateAppointmentAsync(
@@ -181,7 +183,7 @@ public class WaitlistService
                         }
                         catch (InvalidOperationException)
                         {
-                            // Conflict — try the next therapist or slot
+                            // Conflict — try the next slot
                         }
                         catch (ArgumentException)
                         {

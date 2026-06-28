@@ -40,6 +40,7 @@
                       Variant="Variant.Outlined" Margin="Margin.Dense" 
                       OnKeyUp="HandleKeyUp" Disabled="_isProcessing" />
         <MudIconButton Icon="@Icons.Material.Filled.Send" Color="Color.Primary" 
+                       title="Send message" aria-label="Send message"
                        OnClick="SendMessage" Disabled="string.IsNullOrWhiteSpace(_inputText) || _isProcessing" />
     </div>
 </MudPaper>

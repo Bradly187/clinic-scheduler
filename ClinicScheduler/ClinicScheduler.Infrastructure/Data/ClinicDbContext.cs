@@ -1,6 +1,8 @@
 using System.Text;
 using ClinicScheduler.Core.Entities;
 using ClinicScheduler.Core.Interfaces;
+using ClinicScheduler.Infrastructure.Data.Encryption;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -17,15 +19,18 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
 {
     private readonly ICurrentUserService? _currentUser;
     private readonly ILogger<ClinicDbContext>? _logger;
+    private readonly IDataProtectionProvider? _dataProtectionProvider;
 
     public ClinicDbContext(
         DbContextOptions<ClinicDbContext> options,
         ICurrentUserService? currentUser = null,
-        ILogger<ClinicDbContext>? logger = null)
+        ILogger<ClinicDbContext>? logger = null,
+        IDataProtectionProvider? dataProtectionProvider = null)
         : base(options)
     {
         _currentUser = currentUser;
         _logger = logger;
+        _dataProtectionProvider = dataProtectionProvider;
     }
 
     public DbSet<Patient> Patients => Set<Patient>();
@@ -43,6 +48,7 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
     public DbSet<TimeSlot> TimeSlots => Set<TimeSlot>();
     public DbSet<ScheduleConflict> ScheduleConflicts => Set<ScheduleConflict>();
     public DbSet<WaitlistEntry> WaitlistEntries => Set<WaitlistEntry>();
+    public DbSet<TherapistShift> TherapistShifts => Set<TherapistShift>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -76,6 +82,18 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
 
         modelBuilder.Entity<Location>()
             .HasMany(l => l.TimeSlots)
+            .WithOne(ts => ts.Location)
+            .HasForeignKey(ts => ts.LocationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Therapist>()
+            .HasMany(t => t.Shifts)
+            .WithOne(ts => ts.Therapist)
+            .HasForeignKey(ts => ts.TherapistId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Location>()
+            .HasMany<TherapistShift>()
             .WithOne(ts => ts.Location)
             .HasForeignKey(ts => ts.LocationId)
             .OnDelete(DeleteBehavior.Cascade);
@@ -163,6 +181,18 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
         modelBuilder.Entity<TreatmentPlan>()
             .HasIndex(tp => tp.TherapistId)
             .HasDatabaseName("IX_TreatmentPlans_TherapistId");
+
+        if (_dataProtectionProvider != null)
+        {
+            var protector = _dataProtectionProvider.CreateProtector("ClinicScheduler.DataAtRest");
+            var converter = new EncryptedStringConverter(protector);
+
+            modelBuilder.Entity<Patient>().Property(p => p.Notes).HasConversion(converter);
+            modelBuilder.Entity<Patient>().Property(p => p.Phone).HasConversion(converter);
+            modelBuilder.Entity<Appointment>().Property(a => a.Notes).HasConversion(converter);
+            modelBuilder.Entity<AppointmentRequest>().Property(ar => ar.Notes).HasConversion(converter);
+            modelBuilder.Entity<WaitlistEntry>().Property(w => w.Notes).HasConversion(converter);
+        }
     }
     
     /// <summary>
@@ -249,6 +279,11 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
         return "unknown";
     }
 
+    private static readonly HashSet<string> SensitiveProperties =
+    [
+        "FirstName", "LastName", "Email", "Phone", "DateOfBirth", "Notes", "Reason", "DenialReason"
+    ];
+
     private static string? BuildChangeSummary(EntityEntry entry)
     {
         return entry.State switch
@@ -266,7 +301,14 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
         foreach (var prop in entry.Properties.Where(p => p.IsModified))
         {
             if (sb.Length > 0) sb.Append("; ");
-            sb.Append($"{prop.Metadata.Name}: {prop.OriginalValue} → {prop.CurrentValue}");
+            if (SensitiveProperties.Contains(prop.Metadata.Name))
+            {
+                sb.Append($"{prop.Metadata.Name}: [REDACTED] → [REDACTED]");
+            }
+            else
+            {
+                sb.Append($"{prop.Metadata.Name}: {prop.OriginalValue} → {prop.CurrentValue}");
+            }
         }
 
         return sb.Length > 0 ? sb.ToString() : null;
@@ -279,7 +321,14 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
         {
             if (prop.CurrentValue is null) continue;
             if (sb.Length > 0) sb.Append("; ");
-            sb.Append($"{prop.Metadata.Name}: {prop.CurrentValue}");
+            if (SensitiveProperties.Contains(prop.Metadata.Name))
+            {
+                sb.Append($"{prop.Metadata.Name}: [REDACTED]");
+            }
+            else
+            {
+                sb.Append($"{prop.Metadata.Name}: {prop.CurrentValue}");
+            }
         }
 
         return sb.Length > 0 ? sb.ToString() : null;
@@ -292,7 +341,14 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
         {
             if (prop.OriginalValue is null) continue;
             if (sb.Length > 0) sb.Append("; ");
-            sb.Append($"{prop.Metadata.Name}: {prop.OriginalValue}");
+            if (SensitiveProperties.Contains(prop.Metadata.Name))
+            {
+                sb.Append($"{prop.Metadata.Name}: [REDACTED]");
+            }
+            else
+            {
+                sb.Append($"{prop.Metadata.Name}: {prop.OriginalValue}");
+            }
         }
 
         return sb.Length > 0 ? sb.ToString() : null;

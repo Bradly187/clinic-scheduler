@@ -68,7 +68,7 @@ public class MissedAppointmentService
 
             // Walk through each valid slot for the room's location on this day
             var (slotStarts, slotLength) = await _schedulingService.GetDailySlotsForRoomAsync(
-                missed.RoomId, candidate, ct);
+                missed.RoomId, missed.TherapistId, candidate, ct);
 
             foreach (var slotDateTime in slotStarts)
             {

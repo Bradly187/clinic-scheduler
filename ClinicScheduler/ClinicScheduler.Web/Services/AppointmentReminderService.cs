@@ -42,7 +42,7 @@ public sealed class AppointmentReminderService(
         var smsSender = scope.ServiceProvider.GetRequiredService<ISmsSender>();
 
         var now = DateTime.UtcNow;
-        var windowEnd = now.AddHours(24);
+        var windowEnd = now.AddHours(48);
 
         var upcoming = await db.Appointments
             .Include(a => a.Patient)
@@ -57,17 +57,41 @@ public sealed class AppointmentReminderService(
 
         // Collect appointment IDs that already have a reminder to avoid duplicates
         var apptIds = upcoming.Select(a => a.Id).ToList();
-        var alreadyNotified = await db.Notifications
-            .Where(n => n.Type == NotificationType.UpcomingAppointment &&
+        var priorNotifications = await db.Notifications
+            .Where(n => (n.Type == NotificationType.UpcomingAppointment || 
+                         n.Type == NotificationType.UpcomingAppointment48h ||
+                         n.Type == NotificationType.UpcomingAppointment24h) &&
                         n.RelatedAppointmentId.HasValue &&
                         apptIds.Contains(n.RelatedAppointmentId.Value))
-            .Select(n => n.RelatedAppointmentId!.Value)
-            .ToHashSetAsync(ct);
+            .ToListAsync(ct);
 
         int sent = 0;
         foreach (var appt in upcoming)
         {
-            if (alreadyNotified.Contains(appt.Id)) continue;
+            var apptNotifications = priorNotifications.Where(n => n.RelatedAppointmentId == appt.Id).ToList();
+            
+            var hoursUntil = (appt.StartTime - now).TotalHours;
+            NotificationType? typeToSend = null;
+            string prefix = "";
+
+            if (hoursUntil > 24 && hoursUntil <= 48)
+            {
+                if (!apptNotifications.Any(n => n.Type == NotificationType.UpcomingAppointment48h || n.Type == NotificationType.UpcomingAppointment))
+                {
+                    typeToSend = NotificationType.UpcomingAppointment48h;
+                    prefix = "48-Hour Reminder: ";
+                }
+            }
+            else if (hoursUntil > 0 && hoursUntil <= 24)
+            {
+                if (!apptNotifications.Any(n => n.Type == NotificationType.UpcomingAppointment24h || n.Type == NotificationType.UpcomingAppointment)) // fall back for 24h as well if they just migrated
+                {
+                    typeToSend = NotificationType.UpcomingAppointment24h;
+                    prefix = "24-Hour Reminder: ";
+                }
+            }
+
+            if (typeToSend == null) continue;
 
             var user = await db.Users.FirstOrDefaultAsync(
                 u => u.UserName == appt.Patient!.Email, ct);
@@ -75,12 +99,12 @@ public sealed class AppointmentReminderService(
 
             var localTime = appt.StartTime.ToLocalTime();
             var reminderText =
-                $"You have an appointment with {appt.Therapist?.FullName} on " +
+                $"{prefix}You have an appointment with {appt.Therapist?.FullName} on " +
                 $"{localTime:ddd, MMM d} at {localTime:h:mm tt}.";
 
             db.Notifications.Add(new Notification(
                 user.Id,
-                NotificationType.UpcomingAppointment,
+                typeToSend.Value,
                 "Upcoming Appointment Reminder",
                 reminderText,
                 appt.Id));

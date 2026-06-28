@@ -1,4 +1,4 @@
-﻿@inject AuthenticationStateProvider AuthState
+@inject AuthenticationStateProvider AuthState
 @inject IDbContextFactory<ClinicDbContext> DbFactory
 
 <div class="top-row ps-3 navbar navbar-dark">
@@ -7,10 +7,10 @@
     </div>
 </div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler"/>
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" aria-label="Toggle navigation menu"/>
 
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
+    <nav class="nav flex-column" aria-label="Main navigation">
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
                 <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home

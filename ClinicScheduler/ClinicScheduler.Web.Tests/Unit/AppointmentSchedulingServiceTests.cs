@@ -17,13 +17,14 @@ public class AppointmentSchedulingServiceTests
     [InlineData(DayOfWeek.Sunday)]
     public async Task ValidateSlotForLocation_OnWeekend_ThrowsArgumentException(DayOfWeek day)
     {
-        var (_, _, _, _, timeSlotRepo, locationRepo) = BuildMocks();
+        var (_, _, _, _, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<TimeSlot>());
-        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo);
+        therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<TherapistShift>());
+        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var date = NextOccurrenceOf(day, hour: 9);
-        var act = async () => await sut.ValidateSlotForLocation(date, 1);
+        var act = async () => await sut.ValidateSlotForLocation(date, 1, 1);
         await act.Should().ThrowAsync<ArgumentException>().WithMessage("*outside the configured schedule*");
     }
 
@@ -33,39 +34,42 @@ public class AppointmentSchedulingServiceTests
     [InlineData(14, 1)]
     public async Task ValidateSlotForLocation_NonHalfHourBoundary_ThrowsArgumentException(int hour, int minute)
     {
-        var (_, _, _, _, timeSlotRepo, locationRepo) = BuildMocks();
+        var (_, _, _, _, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<TimeSlot>());
-        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo);
+        therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<TherapistShift>());
+        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var slot = new DateTime(2030, 6, 3, hour, minute, 0, DateTimeKind.Utc); // Monday
-        var act = async () => await sut.ValidateSlotForLocation(slot, 1);
+        var act = async () => await sut.ValidateSlotForLocation(slot, 1, 1);
         await act.Should().ThrowAsync<ArgumentException>().WithMessage("*30-minute*");
     }
 
     [Fact]
     public async Task ValidateSlotForLocation_Before8am_ThrowsArgumentException()
     {
-        var (_, _, _, _, timeSlotRepo, locationRepo) = BuildMocks();
+        var (_, _, _, _, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<TimeSlot>());
-        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo);
+        therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<TherapistShift>());
+        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var slot = new DateTime(2030, 6, 3, 7, 30, 0, DateTimeKind.Utc);
-        var act = async () => await sut.ValidateSlotForLocation(slot, 1);
+        var act = async () => await sut.ValidateSlotForLocation(slot, 1, 1);
         await act.Should().ThrowAsync<ArgumentException>().WithMessage("*outside the configured schedule*");
     }
 
     [Fact]
     public async Task ValidateSlotForLocation_At5pm_ThrowsArgumentException()
     {
-        var (_, _, _, _, timeSlotRepo, locationRepo) = BuildMocks();
+        var (_, _, _, _, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<TimeSlot>());
-        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo);
+        therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<TherapistShift>());
+        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var slot = new DateTime(2030, 6, 3, 17, 0, 0, DateTimeKind.Utc);
-        var act = async () => await sut.ValidateSlotForLocation(slot, 1);
+        var act = async () => await sut.ValidateSlotForLocation(slot, 1, 1);
         await act.Should().ThrowAsync<ArgumentException>().WithMessage("*outside the configured schedule*");
     }
 
@@ -77,13 +81,14 @@ public class AppointmentSchedulingServiceTests
     [InlineData(16, 30)]
     public async Task ValidateSlotForLocation_ValidWeekdaySlot_DoesNotThrow(int hour, int minute)
     {
-        var (_, _, _, _, timeSlotRepo, locationRepo) = BuildMocks();
+        var (_, _, _, _, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<TimeSlot>());
-        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo);
+        therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<TherapistShift>());
+        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var slot = new DateTime(2030, 6, 3, hour, minute, 0, DateTimeKind.Utc); // Monday
-        var act = async () => await sut.ValidateSlotForLocation(slot, 1);
+        var act = async () => await sut.ValidateSlotForLocation(slot, 1, 1);
         await act.Should().NotThrowAsync();
     }
 
@@ -92,7 +97,7 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task CreateAppointmentAsync_PatientNotFound_ThrowsArgumentException()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, _, _) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, _, _, _) = BuildMocks();
         patientRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Patient?)null);
         var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo);
@@ -104,7 +109,7 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task CreateAppointmentAsync_TherapistNotFound_ThrowsArgumentException()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, _, _) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, _, _, _) = BuildMocks();
         patientRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Patient1);
         therapistRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Therapist?)null);
@@ -117,7 +122,7 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task CreateAppointmentAsync_RoomNotFound_ThrowsArgumentException()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, _, _) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, _, _, _) = BuildMocks();
         patientRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Patient1);
         therapistRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Therapist1);
         roomRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
@@ -133,15 +138,15 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task CreateAppointmentAsync_TherapistConflict_ThrowsInvalidOperationException()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         SetupCoreEntities(patientRepo, therapistRepo, roomRepo);
-        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, therapistShiftRepo);
 
         // Same therapist, different patient/room
         var blocking = new Appointment(MakePatient(2), Therapist1, MakeRoom(2), ValidSlot, Thirty);
         apptRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<Appointment, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Appointment> { blocking });
-        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var act = async () => await sut.CreateAppointmentAsync(1, 1, 1, ValidSlot, Thirty);
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*therapist*unavailable*");
@@ -150,15 +155,15 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task CreateAppointmentAsync_RoomConflict_ThrowsInvalidOperationException()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         SetupCoreEntities(patientRepo, therapistRepo, roomRepo);
-        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, therapistShiftRepo);
 
         // Same room, different therapist/patient
         var blocking = new Appointment(MakePatient(2), MakeTherapist(2), Room1, ValidSlot, Thirty);
         apptRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<Appointment, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Appointment> { blocking });
-        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var act = async () => await sut.CreateAppointmentAsync(1, 1, 1, ValidSlot, Thirty);
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*room*unavailable*");
@@ -167,15 +172,15 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task CreateAppointmentAsync_PatientDoubleBooked_ThrowsInvalidOperationException()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         SetupCoreEntities(patientRepo, therapistRepo, roomRepo);
-        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, therapistShiftRepo);
 
         // Same patient, different therapist/room
         var blocking = new Appointment(Patient1, MakeTherapist(2), MakeRoom(2), ValidSlot, Thirty);
         apptRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<Appointment, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Appointment> { blocking });
-        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var act = async () => await sut.CreateAppointmentAsync(1, 1, 1, ValidSlot, Thirty);
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*patient*already scheduled*");
@@ -184,9 +189,9 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task CreateAppointmentAsync_CapacityExceeded_ThrowsInvalidOperationException()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         SetupCoreEntities(patientRepo, therapistRepo, roomRepo);
-        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, therapistShiftRepo);
 
         // 12 distinct patients already booked at the location on the same day
         var existing = Enumerable.Range(2, 12)
@@ -204,7 +209,7 @@ public class AppointmentSchedulingServiceTests
         roomRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<Room, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(allRooms);
 
-        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var act = async () => await sut.CreateAppointmentAsync(1, 1, 1, ValidSlot, Thirty);
         await act.Should().ThrowAsync<CapacityExceededException>().WithMessage("*Location daily capacity reached*12*");
@@ -217,9 +222,9 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task CreateAppointmentAsync_ElevenConcurrentPatients_Succeeds()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         SetupCoreEntities(patientRepo, therapistRepo, roomRepo);
-        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, therapistShiftRepo);
 
         // 11 distinct patients — one slot remaining
         var existing = Enumerable.Range(2, 11)
@@ -235,7 +240,7 @@ public class AppointmentSchedulingServiceTests
         roomRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<Room, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(allRooms);
 
-        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var result = await sut.CreateAppointmentAsync(1, 1, 1, ValidSlot, Thirty);
         result.Should().NotBeNull();
@@ -245,14 +250,14 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task CreateAppointmentAsync_NoConflicts_ReturnsScheduledAppointment()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         SetupCoreEntities(patientRepo, therapistRepo, roomRepo);
-        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, therapistShiftRepo);
         apptRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<Appointment, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Appointment>());
         apptRepo.Setup(r => r.AddAsync(It.IsAny<Appointment>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Appointment a, CancellationToken _) => a);
-        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var result = await sut.CreateAppointmentAsync(1, 1, 1, ValidSlot, Thirty);
 
@@ -267,8 +272,8 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task RescheduleAfterMissedAsync_NotMissedStatus_ThrowsArgumentException()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
-        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo);
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var appointment = new Appointment(Patient1, Therapist1, Room1, ValidSlot, Thirty);
         // Status is Scheduled (default), not Missed
@@ -280,7 +285,7 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task RescheduleAfterMissedAsync_NoConflicts_ReturnsAppointmentAfterMissedSlot()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         patientRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Patient1);
         therapistRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Therapist1);
         roomRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Room1);
@@ -288,12 +293,12 @@ public class AppointmentSchedulingServiceTests
             .ReturnsAsync(Array.Empty<Appointment>());
         apptRepo.Setup(r => r.AddAsync(It.IsAny<Appointment>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Appointment a, CancellationToken _) => a);
-        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, therapistShiftRepo);
 
         var missed = new Appointment(Patient1, Therapist1, Room1, ValidSlot, Thirty);
         missed.MarkAsMissed();
 
-        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
         var result = await sut.RescheduleAfterMissedAsync(missed);
 
         result.PatientId.Should().Be(1);
@@ -308,11 +313,11 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task RescheduleAfterMissedAsync_NoSlotIn30Days_ThrowsInvalidOperationException()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         patientRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Patient1);
         therapistRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Therapist1);
         roomRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Room1);
-        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, therapistShiftRepo);
         // Therapist booked solid — every FindAsync returns a conflicting appointment
         var blocking = new Appointment(MakePatient(2), Therapist1, MakeRoom(2), ValidSlot, Thirty);
         apptRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<Appointment, bool>>>(), It.IsAny<CancellationToken>()))
@@ -321,7 +326,7 @@ public class AppointmentSchedulingServiceTests
         var missed = new Appointment(Patient1, Therapist1, Room1, ValidSlot, Thirty);
         missed.MarkAsMissed();
 
-        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
         var act = async () => await sut.RescheduleAfterMissedAsync(missed);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*30 days*");
@@ -332,9 +337,9 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task CreateAppointmentAsync_WrongDurationForLocation_ThrowsArgumentException()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         SetupCoreEntities(patientRepo, therapistRepo, roomRepo);
-        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, therapistShiftRepo);
 
         // Location configured for 45-minute slots
         var location45 = new Location("Main", "123 St") { Id = 1 };
@@ -342,7 +347,7 @@ public class AppointmentSchedulingServiceTests
         locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(location45);
 
-        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
 
         // 8:45 is aligned for 45-minute slots starting at 8:00, but the duration is wrong
         var slot = new DateTime(2030, 6, 3, 8, 45, 0, DateTimeKind.Utc); // Monday
@@ -353,9 +358,9 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task CreateAppointmentAsync_CustomSlotDuration_Succeeds()
     {
-        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         SetupCoreEntities(patientRepo, therapistRepo, roomRepo);
-        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo);
+        SetupLocationDeps(timeSlotRepo, locationRepo, roomRepo, therapistShiftRepo);
 
         var location45 = new Location("Main", "123 St") { Id = 1 };
         location45.SetSlotDuration(45);
@@ -367,7 +372,7 @@ public class AppointmentSchedulingServiceTests
         apptRepo.Setup(r => r.AddAsync(It.IsAny<Appointment>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Appointment a, CancellationToken _) => a);
 
-        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var slot = new DateTime(2030, 6, 3, 8, 45, 0, DateTimeKind.Utc); // Monday, aligned from 8:00
         var fortyFive = TimeSpan.FromMinutes(45);
@@ -380,7 +385,7 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task ValidateSlotForLocation_SaturdayWithConfiguredWindow_DoesNotThrow()
     {
-        var (_, _, _, _, timeSlotRepo, locationRepo) = BuildMocks();
+        var (_, _, _, _, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Loc);
 
@@ -388,18 +393,20 @@ public class AppointmentSchedulingServiceTests
         var saturdayWindow = new TimeSlot(new TimeOnly(9, 0), new TimeOnly(12, 0), DayOfWeek.Saturday, Loc);
         timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<TimeSlot> { saturdayWindow });
+        therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<TherapistShift>());
 
-        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo);
+        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var saturday = NextOccurrenceOf(DayOfWeek.Saturday, hour: 9).AddMinutes(30); // 9:30, aligned from 9:00
-        var act = async () => await sut.ValidateSlotForLocation(saturday, 1);
+        var act = async () => await sut.ValidateSlotForLocation(saturday, 1, 1);
         await act.Should().NotThrowAsync();
     }
 
     [Fact]
     public async Task ValidateSlotForLocation_MisalignedWithinConfiguredWindow_ThrowsBoundaryError()
     {
-        var (_, _, _, _, timeSlotRepo, locationRepo) = BuildMocks();
+        var (_, _, _, _, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Loc);
 
@@ -407,22 +414,24 @@ public class AppointmentSchedulingServiceTests
         var window = new TimeSlot(new TimeOnly(8, 15), new TimeOnly(12, 15), DayOfWeek.Monday, Loc);
         timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<TimeSlot> { window });
+        therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<TherapistShift>());
 
-        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo);
+        var sut = BuildSut(new(), new(), new(), new(), timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var misaligned = new DateTime(2030, 6, 3, 9, 0, 0, DateTimeKind.Utc); // Monday 9:00
-        var act = async () => await sut.ValidateSlotForLocation(misaligned, 1);
+        var act = async () => await sut.ValidateSlotForLocation(misaligned, 1, 1);
         await act.Should().ThrowAsync<ArgumentException>().WithMessage("*30-minute boundary*");
 
         var aligned = new DateTime(2030, 6, 3, 8, 45, 0, DateTimeKind.Utc); // Monday 8:45
-        var actAligned = async () => await sut.ValidateSlotForLocation(aligned, 1);
+        var actAligned = async () => await sut.ValidateSlotForLocation(aligned, 1, 1);
         await actAligned.Should().NotThrowAsync();
     }
 
     [Fact]
     public async Task GetDailySlotsForRoomAsync_45MinuteLocation_ReturnsAlignedSlots()
     {
-        var (_, _, _, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (_, _, _, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         roomRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Room1);
 
         var location45 = new Location("Main", "123 St") { Id = 1 };
@@ -431,11 +440,12 @@ public class AppointmentSchedulingServiceTests
             .ReturnsAsync(location45);
         timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<TimeSlot>());
+        therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<TherapistShift>());
 
-        var sut = BuildSut(new(), new(), new(), roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(new(), new(), new(), roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var monday = new DateTime(2030, 6, 3, 0, 0, 0, DateTimeKind.Utc);
-        var (slots, slotLength) = await sut.GetDailySlotsForRoomAsync(1, monday, CancellationToken.None);
+        var (slots, slotLength) = await sut.GetDailySlotsForRoomAsync(1, 1, monday, CancellationToken.None);
 
         slotLength.Should().Be(TimeSpan.FromMinutes(45));
         // Default 8:00–17:00 window = 540 minutes → 12 full 45-minute slots
@@ -447,17 +457,18 @@ public class AppointmentSchedulingServiceTests
     [Fact]
     public async Task GetDailySlotsForRoomAsync_Weekend_NoConfiguredHours_ReturnsEmpty()
     {
-        var (_, _, _, roomRepo, timeSlotRepo, locationRepo) = BuildMocks();
+        var (_, _, _, roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo) = BuildMocks();
         roomRepo.Setup(r => r.GetByIdAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(Room1);
         locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Loc);
         timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<TimeSlot>());
+        therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<TherapistShift>());
 
-        var sut = BuildSut(new(), new(), new(), roomRepo, timeSlotRepo, locationRepo);
+        var sut = BuildSut(new(), new(), new(), roomRepo, timeSlotRepo, locationRepo, therapistShiftRepo);
 
         var saturday = new DateTime(2030, 6, 1, 0, 0, 0, DateTimeKind.Utc); // Saturday
-        var (slots, _) = await sut.GetDailySlotsForRoomAsync(1, saturday, CancellationToken.None);
+        var (slots, _) = await sut.GetDailySlotsForRoomAsync(1, 1, saturday, CancellationToken.None);
 
         slots.Should().BeEmpty();
     }
@@ -487,15 +498,16 @@ public class AppointmentSchedulingServiceTests
         Mock<IRepository<Therapist>>,
         Mock<IRepository<Room>>,
         Mock<IRepository<TimeSlot>>,
-        Mock<IRepository<Location>>) BuildMocks() =>
-        (new(), new(), new(), new(), new(), new());
+        Mock<IRepository<Location>>,
+        Mock<IRepository<TherapistShift>>) BuildMocks() =>
+        (new(), new(), new(), new(), new(), new(), new());
 
     private static AppointmentSchedulingService BuildSut(
         Mock<IRepository<Appointment>> apptRepo,
         Mock<IRepository<Patient>> patientRepo,
         Mock<IRepository<Therapist>> therapistRepo,
         Mock<IRepository<Room>> roomRepo) =>
-        BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, new(), new());
+        BuildSut(apptRepo, patientRepo, therapistRepo, roomRepo, new(), new(), new());
 
     private static AppointmentSchedulingService BuildSut(
         Mock<IRepository<Appointment>> apptRepo,
@@ -503,9 +515,12 @@ public class AppointmentSchedulingServiceTests
         Mock<IRepository<Therapist>> therapistRepo,
         Mock<IRepository<Room>> roomRepo,
         Mock<IRepository<TimeSlot>> timeSlotRepo,
-        Mock<IRepository<Location>> locationRepo) =>
+        Mock<IRepository<Location>> locationRepo,
+        Mock<IRepository<TherapistShift>> therapistShiftRepo) =>
         new(apptRepo.Object, patientRepo.Object, therapistRepo.Object, roomRepo.Object,
-            timeSlotRepo.Object, locationRepo.Object);
+            timeSlotRepo.Object, locationRepo.Object, therapistShiftRepo.Object,
+            new Mock<ClinicScheduler.Core.Interfaces.IFhirSyncService>().Object,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<AppointmentSchedulingService>.Instance);
 
     private static void SetupCoreEntities(
         Mock<IRepository<Patient>> patientRepo,
@@ -520,11 +535,13 @@ public class AppointmentSchedulingServiceTests
     private static void SetupLocationDeps(
         Mock<IRepository<TimeSlot>> timeSlotRepo,
         Mock<IRepository<Location>> locationRepo,
-        Mock<IRepository<Room>> roomRepo)
+        Mock<IRepository<Room>> roomRepo,
+        Mock<IRepository<TherapistShift>> therapistShiftRepo)
     {
         // No configured time slots — fall back to default 8–5 weekday schedule
         timeSlotRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<TimeSlot>());
+        therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<TherapistShift>());
 
         locationRepo.Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Loc);

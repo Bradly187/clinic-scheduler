@@ -19,6 +19,12 @@ public partial class Therapist
 
     public ICollection<TreatmentPlan> TreatmentPlans { get; set; } = [];
     public ICollection<Appointment> Appointments { get; set; } = [];
+    public ICollection<TherapistShift> Shifts { get; set; } = [];
+
+    /// <summary>
+    /// Optional slot duration specific to this therapist. If null, falls back to the location's default.
+    /// </summary>
+    public int? SlotDurationMinutes { get; private set; }
 
     /// <summary>
     /// Private constructor for EF Core.
@@ -60,6 +66,17 @@ public partial class Therapist
         if (npiNumber is not null && !NpiNumberRegex().IsMatch(npiNumber))
             throw new ArgumentException("NPI number must be exactly 10 digits.", nameof(npiNumber));
         NpiNumber = npiNumber;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetSlotDuration(int? minutes)
+    {
+        if (minutes is < Location.MinSlotDurationMinutes or > Location.MaxSlotDurationMinutes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(minutes),
+                $"Slot duration must be between {Location.MinSlotDurationMinutes} and {Location.MaxSlotDurationMinutes} minutes.");
+        }
+        SlotDurationMinutes = minutes;
         UpdatedAt = DateTime.UtcNow;
     }
 

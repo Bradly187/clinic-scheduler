@@ -157,7 +157,7 @@ public class TreatmentPlanScheduleService
     private async Task<Appointment?> TryBookSessionAsync(
         TreatmentPlan plan, int roomId, DateTime day, TimeOnly preferredTime, CancellationToken ct)
     {
-        var (slotStarts, _) = await _schedulingService.GetDailySlotsForRoomAsync(roomId, day, ct);
+        var (slotStarts, _) = await _schedulingService.GetDailySlotsForRoomAsync(roomId, plan.TherapistId, day, ct);
         if (slotStarts.Count == 0) return null;
 
         var orderedSlots = slotStarts

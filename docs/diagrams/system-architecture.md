@@ -5,21 +5,28 @@
 ```mermaid
 graph TB
     subgraph Presentation ["Presentation Layer"]
-        Web["<b>ClinicScheduler.Web</b><br/>ASP.NET Core Host<br/>Program.cs · DI · Middleware<br/>8 API Controllers<br/>Identity Auth"]
+        Web["<b>ClinicScheduler.Web</b><br/>ASP.NET Core Host<br/>Program.cs · DI · Middleware<br/>8 API Controllers<br/>Identity Auth<br/><b>Agent Service (AI)</b>"]
         Client["<b>ClinicScheduler.Web.Client</b><br/>Blazor WebAssembly<br/>Client-side interactivity"]
-        Shared["<b>ClinicScheduler.Shared</b><br/>23 Blazor Pages (MudBlazor)<br/>Components · Layouts"]
+        Shared["<b>ClinicScheduler.Shared</b><br/>23 Blazor Pages (MudBlazor)<br/>Components · Layouts<br/><b>AgentChat UI</b>"]
     end
 
     subgraph Business ["Business Logic Layer"]
         Core["<b>ClinicScheduler.Core</b><br/>Domain Entities<br/>AppointmentSchedulingService<br/>IRepository&lt;T&gt; interfaces<br/>5 scheduling rules"]
+        SkillExec["<b>Skills & AI</b><br/>ISkillExecutor<br/>Function Calling"]
     end
 
     subgraph Data ["Data Access Layer"]
         Infra["<b>ClinicScheduler.Infrastructure</b><br/>ClinicDbContext (EF Core 10)<br/>Repository&lt;T&gt; implementation<br/>Migrations · Audit logging<br/>DatabaseSeeder"]
     end
 
-    subgraph Storage ["Storage"]
+    subgraph Storage ["Storage & Telemetry"]
         PG[("PostgreSQL 17")]
+        Jaeger["Jaeger Tracing<br/>(OpenTelemetry)"]
+    end
+
+    subgraph External ["External Services"]
+        Gemini["Google Gemini API<br/>(LLM)"]
+        MCP["Model Context Protocol (MCP)<br/>ClinicalTrials, OpenFDA"]
     end
 
     subgraph Testing ["Test Projects"]
@@ -31,11 +38,15 @@ graph TB
     Web --> Core
     Web --> Infra
     Web --> Client
+    Web --> SkillExec
+    Web -.-> Jaeger
     Client --> Shared
     Shared --> Core
     Shared --> Infra
     Infra --> Core
     Infra --> PG
+    SkillExec --> Gemini
+    SkillExec --> MCP
 
     CoreTests -.-> Core
     WebTests -.-> Web
@@ -44,6 +55,7 @@ graph TB
     style Business fill:#e8f5e9,stroke:#388e3c,stroke-width:1px
     style Data fill:#fff3e0,stroke:#f57c00,stroke-width:1px
     style Storage fill:#fce4ec,stroke:#c62828,stroke-width:1px
+    style External fill:#e0f7fa,stroke:#00838f,stroke-width:1px
     style Testing fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1px,stroke-dasharray: 5 5
 ```
 

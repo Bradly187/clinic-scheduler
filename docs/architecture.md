@@ -25,7 +25,9 @@ Web ──► Shared ──► Core
  │
  ├──► Web.Client ──► Shared
  │
- └──► Core (direct reference for services)
+ ├──► Core (direct reference for services)
+ │
+ └──► External Services (Gemini API, MCP Servers)
 
 MAUI ──► Shared ──► Core / Infrastructure
 ```
@@ -38,8 +40,8 @@ Dependencies point inward: `Core` has zero project references, `Infrastructure` 
 |---------|---------------|
 | **Core** | Domain entities (`Patient`, `Therapist`, `Appointment`, `TreatmentPlan`, `Location`, `Room`, `TimeSlot`, `ScheduleConflict`, etc.), enumerations, repository interfaces (`IRepository<T>`), and domain services (`AppointmentSchedulingService`, `MissedAppointmentService`). |
 | **Infrastructure** | `ClinicDbContext` (EF Core + ASP.NET Core Identity), `Repository<T>` implementation, database seeding, migrations, and automatic audit logging. |
-| **Shared** | All Razor pages and components (Home, Appointments, Patients, Therapists, Locations, Rooms, TreatmentPlans, TherapyTypes), `MainLayout`, shared services (`IFormFactor`), and static assets. |
-| **Web** | ASP.NET Core host with `Program.cs` (DI registration, middleware pipeline), REST API controllers (`/api/*`), authentication/authorization config, OpenAPI/Swagger setup, and background services. |
+| **Shared** | All Razor pages and components (Home, Appointments, Patients, Therapists, Locations, Rooms, TreatmentPlans, TherapyTypes), `MainLayout`, shared services (`IFormFactor`), `AgentChat` UI, and static assets. |
+| **Web** | ASP.NET Core host with `Program.cs` (DI registration, middleware pipeline), REST API controllers (`/api/*`), authentication/authorization config, OpenAPI/Swagger setup, AI Agent service integrations, OpenTelemetry, and background services. |
 | **Web.Client** | Blazor WebAssembly entry point. Shares UI components from `Shared` and runs interactively in the browser. |
 | **MAUI** | .NET MAUI Blazor Hybrid app targeting Android, iOS, macOS, and Windows. Reuses the `Shared` UI layer via `BlazorWebView`. |
 
@@ -78,6 +80,14 @@ Business logic lives in `Core` with no dependency on infrastructure or UI concer
 
 `ClinicDbContext.SaveChangesAsync` intercepts all tracked entity changes (Added, Modified, Deleted) and creates `AuditLog` entries before persisting. This provides an immutable change trail without requiring callers to explicitly log changes.
 
+### AI Integration & Function Calling
+
+The application features an intelligent `AgentChat` interface powered by the Gemini API. The AI utilizes **Function Calling** (via `ISkillExecutor`) to directly invoke domain services (e.g., retrieving appointments, scheduling patients). External data is gathered via **Model Context Protocol (MCP)** servers, allowing the AI to query resources like OpenFDA or ClinicalTrials seamlessly.
+
+### Distributed Tracing (Observability)
+
+OpenTelemetry (OTLP) is integrated into the web host, exporting telemetry data (traces, metrics) to a local Jaeger instance for deep observability into database queries, API requests, and AI interactions.
+
 ## Technology Stack
 
 | Category | Technology | Version |
@@ -89,6 +99,9 @@ Business logic lives in `Core` with no dependency on infrastructure or UI concer
 | ORM | Entity Framework Core | 10.0 |
 | Database | PostgreSQL | 17 (Alpine) |
 | Identity | ASP.NET Core Identity | 10.0 |
+| AI Integration | Google Gemini API (gemini-2.5-flash) | — |
+| Extensibility | Model Context Protocol (MCP) | — |
+| Observability | OpenTelemetry + Jaeger | — |
 | Mobile | .NET MAUI Blazor Hybrid | 10.0 |
 | API Docs | OpenAPI + Swashbuckle (Swagger UI) | 10.1.4 |
 | Testing | xUnit, FsCheck, FluentAssertions, Moq | — |

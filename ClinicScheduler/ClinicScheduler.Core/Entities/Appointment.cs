@@ -41,6 +41,9 @@ public class Appointment
     
     public string? Notes { get; set; }
 
+    /// <summary>Remote ID of this appointment in the external EHR/FHIR system.</summary>
+    public string? FhirId { get; private set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
@@ -126,6 +129,12 @@ public class Appointment
             throw new InvalidOperationException($"Cannot mark an appointment as missed if its status is {Status}.");
         }
         Status = AppointmentStatus.Missed;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetFhirId(string? fhirId)
+    {
+        FhirId = fhirId;
         UpdatedAt = DateTime.UtcNow;
     }
 }

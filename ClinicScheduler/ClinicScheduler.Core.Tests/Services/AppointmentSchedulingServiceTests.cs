@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using Microsoft.Extensions.Logging.Abstractions;
 using ClinicScheduler.Core.Entities;
 using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Core.Services;
@@ -15,10 +16,12 @@ public class AppointmentSchedulingServiceTests
     private readonly Mock<IRepository<Room>> _roomRepo = new();
     private readonly Mock<IRepository<TimeSlot>> _timeSlotRepo = new();
     private readonly Mock<IRepository<Location>> _locationRepo = new();
+    private readonly Mock<IRepository<TherapistShift>> _therapistShiftRepo = new();
+    private readonly Mock<IFhirSyncService> _fhirSyncService = new();
 
     private AppointmentSchedulingService CreateService() =>
         new(_appointmentRepo.Object, _patientRepo.Object, _therapistRepo.Object, _roomRepo.Object,
-            _timeSlotRepo.Object, _locationRepo.Object);
+            _timeSlotRepo.Object, _locationRepo.Object, _therapistShiftRepo.Object, _fhirSyncService.Object, NullLogger<AppointmentSchedulingService>.Instance);
 
     private static Patient MakePatient() =>
         new("John", "Doe", "john@example.com", new DateOnly(1985, 1, 1));
@@ -48,6 +51,9 @@ public class AppointmentSchedulingServiceTests
         _timeSlotRepo
             .Setup(r => r.FindAsync(It.IsAny<Expression<Func<TimeSlot, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<TimeSlot>());
+        _therapistShiftRepo
+            .Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<TherapistShift>());
 
         var location = new Location("Main", "123 Main St") { Id = 1 };
         location.SetDailyCapacity(12);

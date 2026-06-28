@@ -165,9 +165,15 @@ public class WaitlistServiceTests
                 .ReturnsAsync(Location);
 
 
+            var therapistShiftRepo = new Mock<IRepository<TherapistShift>>();
+            therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Array.Empty<TherapistShift>());
+
+            var fhirSyncMock = new Mock<IFhirSyncService>();
+            
             var schedulingService = new AppointmentSchedulingService(
                 apptRepo.Object, _patientRepo.Object, therapistRepo.Object, roomRepo.Object,
-                timeSlotRepo.Object, locationRepo.Object);
+                timeSlotRepo.Object, locationRepo.Object, therapistShiftRepo.Object, fhirSyncMock.Object, Microsoft.Extensions.Logging.Abstractions.NullLogger<AppointmentSchedulingService>.Instance);
 
             var waitlistRepo = new Mock<IRepository<WaitlistEntry>>();
             waitlistRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<WaitlistEntry, bool>>>(), It.IsAny<CancellationToken>()))

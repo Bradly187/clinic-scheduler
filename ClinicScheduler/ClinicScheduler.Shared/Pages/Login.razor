@@ -8,7 +8,7 @@
 
         @if (_errorMessage is not null)
         {
-            <MudAlert Severity="Severity.Error" Class="mb-4">@_errorMessage</MudAlert>
+            <MudAlert id="login-alert" Severity="Severity.Error" Class="mb-4">@_errorMessage</MudAlert>
         }
 
         <form method="post" action="/account/login">
@@ -18,14 +18,14 @@
             <div class="mb-4">
                 <label for="email" style="display:block; margin-bottom:4px; font-size:0.875rem; color:#666;">Email</label>
                 <input type="email" id="email" name="email" required
-                       placeholder="Email"
+                       placeholder="Email" aria-describedby="@(_errorMessage != null ? "login-alert" : null)"
                        style="width:100%; padding:12px; border:1px solid #ccc; border-radius:4px; font-size:1rem; outline:none; box-shadow:none;" />
             </div>
 
             <div class="mb-6">
                 <label for="password" style="display:block; margin-bottom:4px; font-size:0.875rem; color:#666;">Password</label>
                 <input type="password" id="password" name="password" required
-                       placeholder="Password"
+                       placeholder="Password" aria-describedby="@(_errorMessage != null ? "login-alert" : null)"
                        style="width:100%; padding:12px; border:1px solid #ccc; border-radius:4px; font-size:1rem; outline:none; box-shadow:none;" />
             </div>
 

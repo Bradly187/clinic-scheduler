@@ -1,6 +1,8 @@
+using System.Diagnostics;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Net.Http.Headers;
+using Microsoft.Extensions.Logging;
 using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Shared.Services;
 using ClinicScheduler.Web.Services.Skills;
@@ -14,12 +16,15 @@ namespace ClinicScheduler.Web.Services;
 /// </summary>
 public class AgentService : IAgentService
 {
+    private static readonly ActivitySource ActivitySource = new("ClinicScheduler.AgentService");
+
     private readonly HttpClient _httpClient;
     private readonly string _modelName;
     private readonly string _endpoint;
     private readonly ISkillRegistry _skillRegistry;
     private readonly ISkillExecutor _skillExecutor;
     private readonly ICurrentUserService _currentUserService;
+    private readonly ILogger<AgentService> _logger;
 
     /// <summary>
     /// Initializes the AgentService with required dependencies and configures
@@ -30,12 +35,14 @@ public class AgentService : IAgentService
         IConfiguration config,
         ISkillRegistry skillRegistry,
         ISkillExecutor skillExecutor,
-        ICurrentUserService currentUserService)
+        ICurrentUserService currentUserService,
+        ILogger<AgentService> logger)
     {
         _httpClient = httpClient;
         _skillRegistry = skillRegistry;
         _skillExecutor = skillExecutor;
         _currentUserService = currentUserService;
+        _logger = logger;
 
         _modelName = config["Gemini:Model"];
         if (string.IsNullOrWhiteSpace(_modelName)) _modelName = "gemini-2.5-flash";
@@ -60,6 +67,9 @@ public class AgentService : IAgentService
     /// <returns>The LLM's final response string.</returns>
     public async Task<string> ProcessMessageAsync(JsonArray chatHistory, CancellationToken ct = default)
     {
+        using var activity = ActivitySource.StartActivity("ProcessMessageAsync");
+        _logger.LogInformation("Starting ProcessMessageAsync. History length: {Count}", chatHistory.Count);
+
         // Load available tools dynamically from the SkillRegistry (C# Skill implementations).
         // A SKILL.md folder that has no matching schema in SkillExecutor would otherwise
         // throw and break the entire chat — skip those skills instead of failing hard.
@@ -70,9 +80,9 @@ public class AgentService : IAgentService
             {
                 tools.Add(_skillExecutor.GetToolSchema(skill.Name));
             }
-            catch (ArgumentException)
+            catch (ArgumentException ex)
             {
-                // Described in markdown but not implemented in SkillExecutor; ignore it.
+                _logger.LogWarning(ex, "Skill {SkillName} is described but not implemented in SkillExecutor. Skipping.", skill.Name);
             }
         }
         
@@ -103,11 +113,25 @@ public class AgentService : IAgentService
                 ["role"] = "system",
                 ["content"] = systemPrompt
             });
+            _logger.LogDebug("Injected system prompt for user {UserName} with roles {Roles}", userNameInfo, roleInfo);
         }
 
         // Run the shared tool-calling loop, executing skills via the SkillExecutor.
-        return await RunLoopAsync(chatHistory, tools,
-            (toolName, toolInput, _) => _skillExecutor.ExecuteAsync(toolName, toolInput), ct);
+        var result = await RunLoopAsync(chatHistory, tools,
+            async (toolName, toolInput, innerCt) => 
+            {
+                using var toolActivity = ActivitySource.StartActivity("ExecuteSkill");
+                toolActivity?.SetTag("skill.name", toolName);
+                _logger.LogInformation("Executing skill: {SkillName}", toolName);
+                
+                var res = await _skillExecutor.ExecuteAsync(toolName, toolInput);
+                
+                _logger.LogInformation("Skill {SkillName} completed.", toolName);
+                return res;
+            }, ct);
+
+        _logger.LogInformation("ProcessMessageAsync completed.");
+        return result;
     }
 
     /// <summary>
@@ -130,6 +154,9 @@ public class AgentService : IAgentService
         Func<string, JsonObject?, CancellationToken, Task<string>> executeTool,
         CancellationToken ct = default)
     {
+        using var activity = ActivitySource.StartActivity("RunLoopAsync");
+        _logger.LogInformation("Entering LLM Tool Calling Loop. Available tools: {ToolCount}", tools.Count);
+
         var requestBody = new JsonObject
         {
             ["model"] = _modelName,
@@ -158,12 +185,16 @@ public class AgentService : IAgentService
             if (finishReason == "tool_calls" || message.ContainsKey("tool_calls"))
             {
                 if (++toolRounds > maxToolRounds)
+                {
+                    _logger.LogWarning("Exceeded maximum tool rounds ({MaxRounds}). Aborting.", maxToolRounds);
                     return "I wasn't able to complete that request within a reasonable number of steps. " +
                            "Please try rephrasing or breaking it into smaller requests.";
+                }
 
                 var toolCalls = message["tool_calls"]?.AsArray();
                 if (toolCalls != null)
                 {
+                    _logger.LogInformation("Model requested {ToolCallCount} tool call(s) (Round {Round}).", toolCalls.Count, toolRounds);
                     foreach (var toolCall in toolCalls)
                     {
                         var toolUseId = toolCall?["id"]?.GetValue<string>();
@@ -179,6 +210,7 @@ public class AgentService : IAgentService
 
                         if (toolName != null)
                         {
+                            _logger.LogDebug("Dispatching tool call: {ToolName}", toolName);
                             var resultText = await executeTool(toolName, toolInput, ct);
                             messages.Add(new JsonObject
                             {
@@ -197,24 +229,32 @@ public class AgentService : IAgentService
             }
             else
             {
+                _logger.LogInformation("Model produced final text response (Round {Round}).", toolRounds);
                 return message["content"]?.GetValue<string>() ?? "No response from assistant.";
             }
         }
 
+        _logger.LogWarning("LLM loop terminated without a final content response.");
         return "No response from assistant.";
     }
 
     private async Task<JsonObject?> SendRequestAsync(JsonObject requestBody, CancellationToken ct)
     {
+        using var activity = ActivitySource.StartActivity("SendRequestToGemini");
+        _logger.LogDebug("Sending request to Gemini API ({Model}).", _modelName);
+
         var content = new StringContent(requestBody.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
         var res = await _httpClient.PostAsync(_endpoint, content, ct);
         if (!res.IsSuccessStatusCode)
         {
             var err = await res.Content.ReadAsStringAsync();
+            _logger.LogError("Gemini API Error: {StatusCode} - {Error}", res.StatusCode, err);
+            activity?.SetStatus(ActivityStatusCode.Error, err);
             throw new Exception($"Gemini API Error: {res.StatusCode} - {err}");
         }
 
         var resString = await res.Content.ReadAsStringAsync();
+        _logger.LogDebug("Received successful response from Gemini API.");
         return JsonSerializer.Deserialize<JsonObject>(resString);
     }
 }

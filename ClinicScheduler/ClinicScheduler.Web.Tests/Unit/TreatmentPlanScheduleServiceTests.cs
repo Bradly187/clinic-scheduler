@@ -185,9 +185,15 @@ public class TreatmentPlanScheduleServiceTests
                 .ReturnsAsync(Location);
 
 
+            var therapistShiftRepo = new Mock<IRepository<TherapistShift>>();
+            therapistShiftRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<TherapistShift, bool>>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Array.Empty<TherapistShift>());
+
+            var fhirSyncMock = new Mock<IFhirSyncService>();
+            
             var schedulingService = new AppointmentSchedulingService(
                 apptRepo.Object, patientRepo.Object, therapistRepo.Object, roomRepo.Object,
-                timeSlotRepo.Object, locationRepo.Object);
+                timeSlotRepo.Object, locationRepo.Object, therapistShiftRepo.Object, fhirSyncMock.Object, Microsoft.Extensions.Logging.Abstractions.NullLogger<AppointmentSchedulingService>.Instance);
 
             var planRepo = new Mock<IRepository<TreatmentPlan>>();
             planRepo.Setup(r => r.GetByIdAsync(PlanId, It.IsAny<CancellationToken>())).ReturnsAsync(Plan);

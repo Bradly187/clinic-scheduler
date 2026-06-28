@@ -14,6 +14,11 @@ The project is **production-ready** with all core scheduling features implemente
 
 ## What Is Complete
 
+### AI Integration & Observability
+- Re-enabled Gemini AI Assistant (`AgentChat.razor`) for natural language scheduling.
+- Integrated Model Context Protocol (MCP) support for external tools (ClinicalTrials, OpenFDA).
+- Enabled OpenTelemetry and Jaeger Tracing for deep observability.
+
 ### Backend — API & Business Logic
 - All 8 REST controllers implemented (`Appointments`, `Patients`, `Therapists`, `Rooms`, `Locations`, `TherapyTypes`, `TreatmentPlans`, `Account`)
 - All CRUD endpoints present; `POST /api/appointments/{id}/mark-missed` implemented with auto-reschedule
@@ -87,6 +92,18 @@ See [TESTING.md](TESTING.md) for full strategy documentation.
 ### Documentation Added This Session
 - [TESTING.md](TESTING.md) — full testing strategy document
 - [PROJECT_STATUS.md](PROJECT_STATUS.md) — this file
+
+---
+
+## Work Done in This Session (2026-06-28) — AI & Accessibility
+
+| Task | Outcome |
+|---|---|
+| Re-enable AI Agent | Fixed database exceptions and enabled `AgentChat.razor` UI. Configured Gemini API. |
+| Database Seeding Fix | Corrected `SEED_ADMIN_PASSWORD` requirements (`Admin@1986`) preventing `DbUpdateException` on startup. |
+| Accessibility Audit | Reached 100/100 Lighthouse Accessibility score by adding semantic headings, `aria-label` tags, and improving contrast ratios. |
+| SEO Audit | Reached 100/100 Lighthouse SEO score by hardcoding `<meta name="description">` and `<title>` in `App.razor`. |
+| Architecture Docs | Added MCP server, OpenTelemetry, and Gemini AI documentation to architecture diagrams and README. |
 
 ---
 

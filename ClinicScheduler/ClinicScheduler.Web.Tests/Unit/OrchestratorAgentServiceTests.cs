@@ -3,6 +3,7 @@ using ClinicScheduler.Web.Services;
 using ClinicScheduler.Web.Services.Skills;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -44,8 +45,8 @@ public class OrchestratorAgentServiceTests
         _mockExecutor.Setup(e => e.ExecuteAsync("get_my_appointments", It.IsAny<JsonObject?>()))
             .ReturnsAsync("Upcoming Appointments: 2 found");
 
-        var agent = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object);
-        var orchestrator = new OrchestratorAgentService(agent, _mockExecutor.Object, _mockUserService.Object);
+        var agent = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object, NullLogger<AgentService>.Instance);
+        var orchestrator = new OrchestratorAgentService(agent, _mockExecutor.Object, _mockUserService.Object, NullLogger<OrchestratorAgentService>.Instance);
 
         var chatHistory = new JsonArray
         {

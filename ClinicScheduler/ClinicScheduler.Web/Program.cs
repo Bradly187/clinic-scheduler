@@ -7,7 +7,9 @@ using ClinicScheduler.Web.Components;
 using ClinicScheduler.Web.Services;
 using ClinicScheduler.Shared.Services;
 using ClinicScheduler.Core.Interfaces;
+using ClinicScheduler.Core.Configuration;
 using ClinicScheduler.Infrastructure.Data;
+using ClinicScheduler.Infrastructure.Ehr;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
@@ -18,6 +20,9 @@ using MudBlazor.Services;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Metrics;
 
 // Bootstrap logger captures startup failures before full Serilog is wired up
 Log.Logger = new LoggerConfiguration()
@@ -107,6 +112,40 @@ try
     // tool loop via AgentService.RunLoopAsync.
     builder.Services.AddScoped<ClinicScheduler.Shared.Services.IAgentService, OrchestratorAgentService>();
 
+    // OpenTelemetry Setup
+    builder.Services.AddOpenTelemetry()
+        .ConfigureResource(resource => resource.AddService(
+            serviceName: Environment.GetEnvironmentVariable("OTEL_SERVICE_NAME") ?? "ClinicScheduler.Web",
+            serviceVersion: "1.0.0"))
+        .WithTracing(tracing =>
+        {
+            tracing
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddEntityFrameworkCoreInstrumentation()
+                .AddSource("ClinicScheduler.AgentService")
+                .AddSource("ClinicScheduler.OrchestratorAgentService")
+                .AddSource("ClinicScheduler.BusinessLogic");
+            
+            var otlpEndpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+            if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+            {
+                tracing.AddOtlpExporter(opt =>
+                {
+                    opt.Endpoint = new Uri(otlpEndpoint);
+                });
+            }
+        })
+        .WithMetrics(metrics =>
+        {
+            metrics
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddRuntimeInstrumentation()
+                .AddMeter("ClinicScheduler.BusinessLogic")
+                .AddPrometheusExporter();
+        });
+
     // Outbound email (no-op until the Email section is configured)
     builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
     builder.Services.AddSingleton<IClinicEmailSender, SmtpEmailSender>();
@@ -115,6 +154,10 @@ try
     builder.Services.Configure<SmsOptions>(builder.Configuration.GetSection(SmsOptions.SectionName));
     builder.Services.AddHttpClient("twilio");
     builder.Services.AddSingleton<ISmsSender, TwilioSmsSender>();
+
+    // FHIR Integration
+    builder.Services.Configure<FhirSettings>(builder.Configuration.GetSection("FhirSettings"));
+    builder.Services.AddScoped<IFhirSyncService, FhirSyncService>();
 
     // Background services
     builder.Services.AddHostedService<AppointmentReminderService>();
@@ -167,6 +210,7 @@ try
             : CookieSecurePolicy.SameAsRequest;
     });
 
+    builder.Services.AddDataProtection();
     builder.Services.AddAuthorization();
 
     builder.Services.AddCascadingAuthenticationState();
@@ -387,6 +431,8 @@ try
         Predicate = _ => false
     }).AllowAnonymous();
     app.MapHealthChecks("/health").AllowAnonymous();
+    app.MapPrometheusScrapingEndpoint();
+
 
     // Map API endpoints
     app.MapControllers();

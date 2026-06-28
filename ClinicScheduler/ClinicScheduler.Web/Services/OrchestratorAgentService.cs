@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
 using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Shared.Services;
 using ClinicScheduler.Web.Services.Skills;
@@ -28,9 +30,12 @@ public sealed record SpecialistAgent(string Name, string Description, string Sys
 /// </summary>
 public class OrchestratorAgentService : IAgentService
 {
+    private static readonly ActivitySource ActivitySource = new("ClinicScheduler.OrchestratorAgentService");
+
     private readonly AgentService _agent;
     private readonly ISkillExecutor _skillExecutor;
     private readonly ICurrentUserService _currentUserService;
+    private readonly ILogger<OrchestratorAgentService> _logger;
 
     /// <summary>The specialist roster. Add a specialist here to give the clinic a new workflow.</summary>
     private static readonly SpecialistAgent[] Specialists =
@@ -85,16 +90,21 @@ public class OrchestratorAgentService : IAgentService
     public OrchestratorAgentService(
         AgentService agent,
         ISkillExecutor skillExecutor,
-        ICurrentUserService currentUserService)
+        ICurrentUserService currentUserService,
+        ILogger<OrchestratorAgentService> logger)
     {
         _agent = agent;
         _skillExecutor = skillExecutor;
         _currentUserService = currentUserService;
+        _logger = logger;
     }
 
     /// <inheritdoc />
     public async Task<string> ProcessMessageAsync(JsonArray chatHistory, CancellationToken ct = default)
     {
+        using var activity = ActivitySource.StartActivity("ProcessMessageAsync");
+        _logger.LogInformation("Orchestrator starting ProcessMessageAsync. Chat history length: {Count}", chatHistory.Count);
+
         // Snapshot the user-visible conversation (user/assistant text) BEFORE we add the coordinator's
         // system prompt or routing turns — specialists run with this clean context so they can handle
         // multi-turn flows (e.g. cancel → confirm) without seeing the orchestration plumbing.
@@ -112,20 +122,39 @@ public class OrchestratorAgentService : IAgentService
         var routeTools = BuildRouteTools();
 
         // Run the coordinator loop; its "tools" are the specialists.
-        return await _agent.RunLoopAsync(chatHistory, routeTools, async (toolName, args, innerCt) =>
+        var result = await _agent.RunLoopAsync(chatHistory, routeTools, async (toolName, args, innerCt) =>
         {
+            using var routeActivity = ActivitySource.StartActivity("RouteToSpecialist");
+            routeActivity?.SetTag("specialist.route", toolName);
+            _logger.LogInformation("Coordinator routing request to specialist via: {ToolName}", toolName);
+
             var specialist = Array.Find(Specialists, s => $"route_to_{s.Name}" == toolName);
-            if (specialist is null) return $"Error: unknown specialist route '{toolName}'.";
+            if (specialist is null) 
+            {
+                _logger.LogWarning("Unknown specialist route requested: {ToolName}", toolName);
+                return $"Error: unknown specialist route '{toolName}'.";
+            }
 
             var task = args?["task"]?.GetValue<string>();
-            return await RunSpecialistAsync(specialist, conversation, task, innerCt);
+            _logger.LogInformation("Extracted task for {SpecialistName}: {Task}", specialist.Name, task);
+
+            var specialistResult = await RunSpecialistAsync(specialist, conversation, task, innerCt);
+            _logger.LogInformation("Specialist {SpecialistName} completed its task.", specialist.Name);
+            return specialistResult;
         }, ct);
+
+        _logger.LogInformation("Orchestrator ProcessMessageAsync completed.");
+        return result;
     }
 
     /// <summary>Runs one specialist as a nested tool loop over a clean copy of the conversation.</summary>
     private async Task<string> RunSpecialistAsync(
         SpecialistAgent specialist, JsonArray conversation, string? task, CancellationToken ct)
     {
+        using var activity = ActivitySource.StartActivity("RunSpecialistAsync");
+        activity?.SetTag("specialist.name", specialist.Name);
+        _logger.LogInformation("Initializing sub-agent loop for specialist: {SpecialistName}", specialist.Name);
+
         var messages = new JsonArray
         {
             new JsonObject
@@ -150,12 +179,31 @@ public class OrchestratorAgentService : IAgentService
         var tools = new JsonArray();
         foreach (var skillName in specialist.SkillNames)
         {
-            try { tools.Add(_skillExecutor.GetToolSchema(skillName)); }
-            catch (ArgumentException) { /* skill not implemented; skip */ }
+            try 
+            { 
+                tools.Add(_skillExecutor.GetToolSchema(skillName)); 
+            }
+            catch (ArgumentException ex) 
+            { 
+                _logger.LogWarning(ex, "Specialist {SpecialistName} requires skill '{SkillName}' but it is not implemented. Skipping.", specialist.Name, skillName);
+            }
         }
 
-        return await _agent.RunLoopAsync(messages, tools,
-            (toolName, toolInput, _) => _skillExecutor.ExecuteAsync(toolName, toolInput), ct);
+        _logger.LogDebug("Specialist {SpecialistName} is starting its LLM loop with {ToolCount} allowed tools.", specialist.Name, tools.Count);
+
+        var result = await _agent.RunLoopAsync(messages, tools,
+            async (toolName, toolInput, _) => 
+            {
+                using var skillActivity = ActivitySource.StartActivity("SpecialistExecuteSkill");
+                skillActivity?.SetTag("skill.name", toolName);
+                _logger.LogInformation("Specialist {SpecialistName} executing skill: {SkillName}", specialist.Name, toolName);
+                var res = await _skillExecutor.ExecuteAsync(toolName, toolInput);
+                _logger.LogInformation("Specialist {SpecialistName} finished skill {SkillName}.", specialist.Name, toolName);
+                return res;
+            }, ct);
+
+        _logger.LogInformation("Specialist {SpecialistName} completed its LLM loop.", specialist.Name);
+        return result;
     }
 
     /// <summary>Builds one <c>route_to_{name}</c> function tool per specialist for the coordinator.</summary>
