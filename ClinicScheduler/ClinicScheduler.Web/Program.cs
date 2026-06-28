@@ -224,31 +224,44 @@ try
             ? throw new InvalidOperationException("Jwt:SigningKey must be set via the Jwt__SigningKey environment variable in production.")
             : "dev-only-signing-key-not-for-production-use-changeme");
 
-    builder.Services.AddAuthentication()
-        .AddJwtBearer(options =>
-        {
-            options.TokenValidationParameters = new TokenValidationParameters
-            {
-                ValidateIssuer           = true,
-                ValidIssuer              = jwtIssuer,
-                ValidateAudience         = true,
-                ValidAudience            = jwtAudience,
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-                ValidateLifetime         = true,
-                ClockSkew                = TimeSpan.FromSeconds(30),
-            };
-        });
-
-    builder.Services.AddAuthorization(options =>
+    // Route authentication to JWT when an Authorization: Bearer header is present,
+    // otherwise fall back to the Identity cookie scheme.
+    // WebAppFixture uses PostConfigure to override DefaultAuthenticateScheme → "TestScheme"
+    // in CI, which plain AddAuthorization (no explicit schemes) correctly picks up.
+    builder.Services.AddAuthentication(o =>
     {
-        // Default policy accepts both cookie (Blazor) and Bearer token (REST API clients)
-        options.DefaultPolicy = new AuthorizationPolicyBuilder(
-                IdentityConstants.ApplicationScheme,
-                JwtBearerDefaults.AuthenticationScheme)
-            .RequireAuthenticatedUser()
-            .Build();
+        o.DefaultAuthenticateScheme = "CookieOrJwt";
+        o.DefaultChallengeScheme    = IdentityConstants.ApplicationScheme;
+        o.DefaultSignInScheme       = IdentityConstants.ApplicationScheme;
+        o.DefaultSignOutScheme      = IdentityConstants.ApplicationScheme;
+        o.DefaultForbidScheme       = IdentityConstants.ApplicationScheme;
+    })
+    .AddPolicyScheme("CookieOrJwt", "Cookie or Bearer", o =>
+    {
+        o.ForwardDefaultSelector = ctx =>
+        {
+            var auth = ctx.Request.Headers.Authorization.FirstOrDefault();
+            return !string.IsNullOrEmpty(auth) && auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? JwtBearerDefaults.AuthenticationScheme
+                : IdentityConstants.ApplicationScheme;
+        };
+    })
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer           = true,
+            ValidIssuer              = jwtIssuer,
+            ValidateAudience         = true,
+            ValidAudience            = jwtAudience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            ValidateLifetime         = true,
+            ClockSkew                = TimeSpan.FromSeconds(30),
+        };
     });
+
+    builder.Services.AddAuthorization();
 
     builder.Services.AddCascadingAuthenticationState();
 
