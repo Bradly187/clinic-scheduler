@@ -15,7 +15,7 @@ public static class DatabaseSeeder
         RoleManager<IdentityRole> roleManager, string adminPassword, bool isDevelopment = false)
     {
         // Seed roles — always needed in all environments
-        foreach (var role in new[] { "Admin", "ClinicManager", "Therapist", "Staff", "Patient" })
+        foreach (var role in new[] { "Admin", "ClinicManager", "Therapist", "Staff", "Patient", "Auditor" })
             if (!await roleManager.RoleExistsAsync(role))
                 await roleManager.CreateAsync(new IdentityRole(role));
 
@@ -31,6 +31,7 @@ public static class DatabaseSeeder
             await EnsureUser(userManager, "linda.nguyen@clinic.com",       "Linda Nguyen",    "Therapist@1234", "Therapist");
             await EnsureUser(userManager, "staff@clinic.com",              "Staff Member",    "Staff@Clinic1",  "Staff");
             await EnsureUser(userManager, "patient@clinic.com",            "Demo Patient",    "Patient@1234",   "Patient");
+            await EnsureUser(userManager, "auditor@clinic.com",            "Compliance Auditor", "Auditor@1234", "Auditor");
         }
 
         static async Task EnsureUser(UserManager<AppUser> um, string email, string displayName, string password, string role)

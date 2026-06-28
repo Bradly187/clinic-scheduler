@@ -7,7 +7,9 @@ public static class RoleNames
     public const string Staff = "Staff";
     public const string Therapist = "Therapist";
     public const string Patient = "Patient";
+    public const string Auditor = "Auditor";
 
     public const string StaffOrAbove = Admin + "," + ClinicManager + "," + Staff + "," + Therapist;
     public const string AdminOrManager = Admin + "," + ClinicManager;
+    public const string AdminOrAuditor = Admin + "," + Auditor;
 }

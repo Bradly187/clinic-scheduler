@@ -192,7 +192,7 @@
 
     private static string BuildQrCodeDataUrl(string email, string key)
     {
-        const string issuer = "ClinicScheduler";
+        const string issuer = "ClinicAgent";
         var uri = $"otpauth://totp/{Uri.EscapeDataString(issuer)}:{Uri.EscapeDataString(email)}" +
                   $"?secret={key}&issuer={Uri.EscapeDataString(issuer)}&digits=6";
 

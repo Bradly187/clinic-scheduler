@@ -1,4 +1,7 @@
+using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using ClinicScheduler.Web;
@@ -211,7 +214,41 @@ try
     });
 
     builder.Services.AddDataProtection();
-    builder.Services.AddAuthorization();
+
+    // JWT Bearer — for external REST API clients; issues via POST /api/auth/token
+    // Set Jwt__SigningKey (env var) in production; dev falls back to a hard-coded insecure key.
+    var jwtIssuer   = builder.Configuration["Jwt:Issuer"]   ?? "ClinicAgent";
+    var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "ClinicAgent";
+    var jwtKey      = builder.Configuration["Jwt:SigningKey"]
+        ?? (builder.Environment.IsDevelopment()
+            ? "dev-only-signing-key-not-for-production-use-changeme"
+            : throw new InvalidOperationException("Jwt:SigningKey must be set via the Jwt__SigningKey environment variable in production."));
+
+    builder.Services.AddAuthentication()
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer           = true,
+                ValidIssuer              = jwtIssuer,
+                ValidateAudience         = true,
+                ValidAudience            = jwtAudience,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+                ValidateLifetime         = true,
+                ClockSkew                = TimeSpan.FromSeconds(30),
+            };
+        });
+
+    builder.Services.AddAuthorization(options =>
+    {
+        // Default policy accepts both cookie (Blazor) and Bearer token (REST API clients)
+        options.DefaultPolicy = new AuthorizationPolicyBuilder(
+                IdentityConstants.ApplicationScheme,
+                JwtBearerDefaults.AuthenticationScheme)
+            .RequireAuthenticatedUser()
+            .Build();
+    });
 
     builder.Services.AddCascadingAuthenticationState();
 
@@ -282,8 +319,9 @@ try
         {
             document.Info = new OpenApiInfo
             {
-                Title = "Clinic Scheduler API",
-                Version = "v1"
+                Title = "ClinicAgent API",
+                Version = "v1",
+                Description = "REST API for ClinicAgent. Authenticate via POST /api/auth/token to receive a Bearer token.",
             };
 
             return Task.CompletedTask;
@@ -389,20 +427,20 @@ try
     if (app.Environment.IsDevelopment())
     {
         app.UseWebAssemblyDebugging();
-
-        app.MapOpenApi();
-
-        app.UseSwaggerUI(options =>
-        {
-            options.SwaggerEndpoint("/openapi/v1.json", "ClinicScheduler API v1");
-            options.RoutePrefix = "swagger";
-        });
     }
     else
     {
         app.UseExceptionHandler("/Error", createScopeForErrors: true);
         app.UseHsts();
     }
+
+    // API docs — available in all environments so external integrators can browse the spec
+    app.MapOpenApi();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/openapi/v1.json", "ClinicAgent API v1");
+        options.RoutePrefix = "swagger";
+    });
 
     app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 
