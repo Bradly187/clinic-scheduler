@@ -220,9 +220,9 @@ try
     var jwtIssuer   = builder.Configuration["Jwt:Issuer"]   ?? "ClinicAgent";
     var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "ClinicAgent";
     var jwtKey      = builder.Configuration["Jwt:SigningKey"]
-        ?? (builder.Environment.IsDevelopment()
-            ? "dev-only-signing-key-not-for-production-use-changeme"
-            : throw new InvalidOperationException("Jwt:SigningKey must be set via the Jwt__SigningKey environment variable in production."));
+        ?? (builder.Environment.IsProduction()
+            ? throw new InvalidOperationException("Jwt:SigningKey must be set via the Jwt__SigningKey environment variable in production.")
+            : "dev-only-signing-key-not-for-production-use-changeme");
 
     builder.Services.AddAuthentication()
         .AddJwtBearer(options =>
