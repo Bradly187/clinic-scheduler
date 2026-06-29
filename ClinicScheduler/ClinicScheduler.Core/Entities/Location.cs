@@ -44,6 +44,9 @@ public class Location
     /// <summary><see cref="SlotDurationMinutes"/> as a <see cref="TimeSpan"/>.</summary>
     public TimeSpan SlotDuration => TimeSpan.FromMinutes(SlotDurationMinutes);
 
+    /// <summary>Remote ID of this location (FHIR Location) in the external EHR/FHIR system.</summary>
+    public string? FhirId { get; private set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
@@ -119,6 +122,13 @@ public class Location
         }
 
         DailyCapacity = capacity;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Records the remote FHIR Location id after an external sync.</summary>
+    public void SetFhirId(string? fhirId)
+    {
+        FhirId = fhirId;
         UpdatedAt = DateTime.UtcNow;
     }
 }

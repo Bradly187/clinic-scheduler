@@ -1,5 +1,4 @@
 using ClinicScheduler.Core.Configuration;
-using ClinicScheduler.Core.Entities;
 using ClinicScheduler.Core.Interfaces;
 using Hl7.Fhir.Model;
 using Hl7.Fhir.Rest;
@@ -8,12 +7,17 @@ using Microsoft.Extensions.Options;
 
 using DomainPatient = ClinicScheduler.Core.Entities.Patient;
 using DomainAppointment = ClinicScheduler.Core.Entities.Appointment;
-using FhirPatient = Hl7.Fhir.Model.Patient;
-using FhirAppointment = Hl7.Fhir.Model.Appointment;
+using DomainTherapist = ClinicScheduler.Core.Entities.Therapist;
+using DomainLocation = ClinicScheduler.Core.Entities.Location;
 using Task = System.Threading.Tasks.Task;
 
 namespace ClinicScheduler.Infrastructure.Ehr;
 
+/// <summary>
+/// Pushes domain entities to an external FHIR R4 server. Mapping (domain → resource) lives in
+/// <see cref="FhirResourceMapper"/>; this class owns transport: the lazily-built client and the
+/// create-or-update decision. When <c>FhirSettings.BaseUrl</c> is unset it is a safe no-op.
+/// </summary>
 public class FhirSyncService : IFhirSyncService
 {
     private readonly FhirSettings _settings;
@@ -32,9 +36,9 @@ public class FhirSyncService : IFhirSyncService
                 PreferredFormat = ResourceFormat.Json,
                 VerifyFhirVersion = true
             };
-            
+
             _fhirClient = new FhirClient(_settings.BaseUrl, settings);
-            
+
             if (!string.IsNullOrWhiteSpace(_settings.AuthToken))
             {
                 _fhirClient.RequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _settings.AuthToken);
@@ -42,113 +46,48 @@ public class FhirSyncService : IFhirSyncService
         }
     }
 
-    public async Task<string> SyncPatientAsync(DomainPatient patient, CancellationToken ct = default)
+    public Task<string> SyncPatientAsync(DomainPatient patient, CancellationToken ct = default)
+        => SyncAsync(FhirResourceMapper.ToFhirPatient(patient), patient.FhirId, "Patient", patient.Id);
+
+    public Task<string> SyncAppointmentAsync(DomainAppointment appointment, CancellationToken ct = default)
+        => SyncAsync(FhirResourceMapper.ToFhirAppointment(appointment), appointment.FhirId, "Appointment", appointment.Id);
+
+    public Task<string> SyncTherapistAsync(DomainTherapist therapist, CancellationToken ct = default)
+        => SyncAsync(FhirResourceMapper.ToFhirPractitioner(therapist), therapist.FhirId, "Practitioner", therapist.Id);
+
+    public Task<string> SyncLocationAsync(DomainLocation location, CancellationToken ct = default)
+        => SyncAsync(FhirResourceMapper.ToFhirLocation(location), location.FhirId, "Location", location.Id);
+
+    /// <summary>
+    /// Creates the resource if it has no remote id yet, otherwise updates it. Returns the remote id,
+    /// or the existing local <paramref name="existingFhirId"/> when the server is unconfigured or the
+    /// call fails (so a sync failure never breaks the domain operation that triggered it).
+    /// </summary>
+    private async Task<string> SyncAsync(Resource resource, string? existingFhirId, string resourceType, int localId)
     {
         if (_fhirClient == null)
         {
             _logger.LogWarning("FHIR Sync skipped: BaseUrl is not configured.");
-            return patient.FhirId ?? string.Empty;
+            return existingFhirId ?? string.Empty;
         }
 
         try
         {
-            var fhirPatient = new FhirPatient
+            if (string.IsNullOrEmpty(existingFhirId))
             {
-                Id = patient.FhirId,
-                Name = new List<HumanName>
-                {
-                    new HumanName { Family = patient.LastName, Given = new[] { patient.FirstName } }
-                },
-                BirthDate = patient.DateOfBirth.ToString("yyyy-MM-dd")
-            };
-
-            if (!string.IsNullOrWhiteSpace(patient.Email))
-            {
-                fhirPatient.Telecom.Add(new ContactPoint { System = ContactPoint.ContactPointSystem.Email, Value = patient.Email });
-            }
-
-            if (!string.IsNullOrWhiteSpace(patient.Phone))
-            {
-                fhirPatient.Telecom.Add(new ContactPoint { System = ContactPoint.ContactPointSystem.Phone, Value = patient.Phone });
-            }
-
-            if (string.IsNullOrEmpty(patient.FhirId))
-            {
-                var created = await _fhirClient.CreateAsync(fhirPatient);
-                _logger.LogInformation("Successfully created FHIR Patient {Id}", created.Id);
+                var created = await _fhirClient.CreateAsync(resource);
+                _logger.LogInformation("Successfully created FHIR {ResourceType} {Id}", resourceType, created.Id);
                 return created.Id;
             }
-            else
-            {
-                var updated = await _fhirClient.UpdateAsync(fhirPatient);
-                _logger.LogInformation("Successfully updated FHIR Patient {Id}", updated.Id);
-                return updated.Id;
-            }
+
+            var updated = await _fhirClient.UpdateAsync(resource);
+            _logger.LogInformation("Successfully updated FHIR {ResourceType} {Id}", resourceType, updated.Id);
+            return updated.Id;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to sync Patient {Id} to FHIR.", patient.Id);
-            return patient.FhirId ?? string.Empty;
-        }
-    }
-
-    public async Task<string> SyncAppointmentAsync(DomainAppointment appointment, CancellationToken ct = default)
-    {
-        if (_fhirClient == null)
-        {
-            _logger.LogWarning("FHIR Sync skipped: BaseUrl is not configured.");
-            return appointment.FhirId ?? string.Empty;
-        }
-
-        try
-        {
-            var fhirAppointment = new FhirAppointment
-            {
-                Id = appointment.FhirId,
-                Status = appointment.Status switch
-                {
-                    AppointmentStatus.Scheduled => FhirAppointment.AppointmentStatus.Booked,
-                    AppointmentStatus.Completed => FhirAppointment.AppointmentStatus.Fulfilled,
-                    AppointmentStatus.Canceled => FhirAppointment.AppointmentStatus.Cancelled,
-                    AppointmentStatus.Missed => FhirAppointment.AppointmentStatus.Noshow,
-                    _ => FhirAppointment.AppointmentStatus.Booked
-                },
-                Start = new DateTimeOffset(appointment.StartTime),
-                End = new DateTimeOffset(appointment.EndTime)
-            };
-
-            if (!string.IsNullOrWhiteSpace(appointment.Notes))
-            {
-                fhirAppointment.Comment = appointment.Notes;
-            }
-
-            // In a real implementation we would attach Participant references (Patient, Practitioner, Location)
-            if (appointment.Patient?.FhirId != null)
-            {
-                fhirAppointment.Participant.Add(new FhirAppointment.ParticipantComponent
-                {
-                    Actor = new ResourceReference($"Patient/{appointment.Patient.FhirId}"),
-                    Status = ParticipationStatus.Accepted
-                });
-            }
-
-            if (string.IsNullOrEmpty(appointment.FhirId))
-            {
-                var created = await _fhirClient.CreateAsync(fhirAppointment);
-                _logger.LogInformation("Successfully created FHIR Appointment {Id}", created.Id);
-                return created.Id;
-            }
-            else
-            {
-                var updated = await _fhirClient.UpdateAsync(fhirAppointment);
-                _logger.LogInformation("Successfully updated FHIR Appointment {Id}", updated.Id);
-                return updated.Id;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to sync Appointment {Id} to FHIR.", appointment.Id);
-            return appointment.FhirId ?? string.Empty;
+            _logger.LogError(ex, "Failed to sync {ResourceType} {Id} to FHIR.", resourceType, localId);
+            return existingFhirId ?? string.Empty;
         }
     }
 }
