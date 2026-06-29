@@ -9,6 +9,7 @@ using ClinicScheduler.Core.Services;
 using ClinicScheduler.Web.Components;
 using ClinicScheduler.Web.Services;
 using ClinicScheduler.Web.Services.Skills;
+using ClinicScheduler.Web.Services.Workflows;
 using ClinicScheduler.Shared.Services;
 using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Core.Configuration;
@@ -110,6 +111,9 @@ try
     builder.Services.AddSingleton<ClinicScheduler.Web.Services.Skills.ISkillRegistry, ClinicScheduler.Web.Services.Skills.SkillRegistry>();
     // Each agent tool is a self-registering ISkill; the executor just dispatches to them.
     builder.Services.AddClinicSkills();
+    // Each healthcare workflow is a self-registering IWorkflowPack; the orchestrator builds its
+    // specialist roster from all of them. Add a workflow = register a pack (no orchestrator edit).
+    builder.Services.AddClinicWorkflows();
     // AgentService is the shared LLM tool-loop primitive (typed HttpClient for Gemini).
     builder.Services.AddHttpClient<AgentService>();
     // The chat is served by the multi-agent orchestrator: a coordinator that routes each

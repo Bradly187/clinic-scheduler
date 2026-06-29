@@ -5,18 +5,9 @@ using Microsoft.Extensions.Logging;
 using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Shared.Services;
 using ClinicScheduler.Web.Services.Skills;
+using ClinicScheduler.Web.Services.Workflows;
 
 namespace ClinicScheduler.Web.Services;
-
-/// <summary>
-/// Definition of a specialist sub-agent: a focused role with its own system prompt and a
-/// subset of the clinic skills it is allowed to use.
-/// </summary>
-/// <param name="Name">Lower-snake-case id; the coordinator routes to it via <c>route_to_{Name}</c>.</param>
-/// <param name="Description">What this specialist handles — shown to the coordinator for routing.</param>
-/// <param name="SystemPrompt">Role instructions for the specialist's own tool loop.</param>
-/// <param name="SkillNames">Skills (tools) this specialist may call. Empty = advisory only.</param>
-public sealed record SpecialistAgent(string Name, string Description, string SystemPrompt, string[] SkillNames);
 
 /// <summary>
 /// Multi-agent orchestrator. A lightweight <b>Coordinator</b> classifies each user request and
@@ -35,68 +26,29 @@ public class OrchestratorAgentService : IAgentService
     private readonly AgentService _agent;
     private readonly ISkillExecutor _skillExecutor;
     private readonly ICurrentUserService _currentUserService;
+    private readonly ClinicProfile _clinicProfile;
     private readonly ILogger<OrchestratorAgentService> _logger;
 
-    /// <summary>The specialist roster. Add a specialist here to give the clinic a new workflow.</summary>
-    private static readonly SpecialistAgent[] Specialists =
-    [
-        new SpecialistAgent(
-            "info_agent",
-            "Looks up and reports appointment information (e.g. \"what appointments do I have?\"). Read-only — cannot change anything.",
-            "You are the Info specialist for a pain-management clinic. You retrieve and clearly present " +
-            "appointment information using your tools. You never book, cancel, or modify anything — if the " +
-            "user asks for a change, tell them you'll hand that to the Scheduling specialist.",
-            ["get_my_appointments", "get_appointments"]),
-
-        new SpecialistAgent(
-            "scheduling_agent",
-            "Books, cancels, or reschedules appointments — use for any request that changes the schedule.",
-            "You are the Scheduling specialist for a pain-management clinic. You book, cancel, and reschedule " +
-            "appointments using your tools. Cancelling and rescheduling both use a two-step confirmation: preview " +
-            "first, then call again with confirmed=true only after the user agrees. Look up appointments when you " +
-            "need an ID. Present results clearly.",
-            ["get_my_appointments", "get_appointments", "schedule_appointment", "reschedule_appointment", "cancel_my_appointment", "cancel_any_appointment"]),
-
-        new SpecialistAgent(
-            "waitlist_agent",
-            "Manages the waitlist: add a patient to it for a date window, list their waitlist entries, or remove one. Use when no slot is available now or the user mentions waiting for an opening.",
-            "You are the Waitlist specialist for a pain-management clinic. You add patients to the waitlist for a " +
-            "date window (the system books the first matching opening automatically), list their active waitlist " +
-            "entries, and remove entries on request. Confirm the date window and any preferences before adding, and " +
-            "confirm which entry to remove (show the list first if needed). Present results clearly.",
-            ["join_waitlist", "get_my_waitlist", "leave_waitlist"]),
-
-        new SpecialistAgent(
-            "treatment_plan_agent",
-            "Views, creates, and schedules treatment plans (recurring courses of therapy). Use for anything about a patient's treatment plan or generating its session series.",
-            "You are the Treatment Plan specialist for a pain-management clinic. You can show a patient's treatment " +
-            "plan to anyone entitled to see it. Creating a plan and generating its appointment series are Staff/Admin " +
-            "only — if a patient asks to create one, explain that staff set up treatment plans. When creating a plan, " +
-            "confirm the frequency (2, 3, or 4 per week), total sessions (20, 30, or 50), therapist, and start date " +
-            "first. After creating, offer to generate the session series. Present results clearly.",
-            ["get_my_treatment_plan", "create_treatment_plan", "generate_plan_appointments"]),
-
-        new SpecialistAgent(
-            "triage_agent",
-            "Advises which therapy type or therapist specialty fits a described symptom or concern, then guides toward booking. No record access.",
-            "You are the Triage specialist for a pain-management clinic. Based on the patient's described symptoms " +
-            "or concerns, recommend an appropriate therapy type or therapist specialty (e.g. acute musculoskeletal " +
-            "injury → physical therapy; chronic pain → pain management; anxiety or PTSD → behavioral therapy). You do " +
-            "not access records or book appointments. Keep advice general, never give a diagnosis, and finish by " +
-            "suggesting the patient ask to schedule with the recommended specialty.",
-            []),
-    ];
+    /// <summary>
+    /// The coordinator's specialist roster, aggregated from every registered <see cref="IWorkflowPack"/>.
+    /// Adding a workflow is "register a pack" — no edit here.
+    /// </summary>
+    private readonly IReadOnlyList<SpecialistAgent> _specialists;
 
     public OrchestratorAgentService(
         AgentService agent,
         ISkillExecutor skillExecutor,
         ICurrentUserService currentUserService,
+        IEnumerable<IWorkflowPack> workflowPacks,
+        ClinicProfile clinicProfile,
         ILogger<OrchestratorAgentService> logger)
     {
         _agent = agent;
         _skillExecutor = skillExecutor;
         _currentUserService = currentUserService;
+        _clinicProfile = clinicProfile;
         _logger = logger;
+        _specialists = workflowPacks.SelectMany(p => p.GetSpecialists()).ToList();
     }
 
     /// <inheritdoc />
@@ -128,7 +80,7 @@ public class OrchestratorAgentService : IAgentService
             routeActivity?.SetTag("specialist.route", toolName);
             _logger.LogInformation("Coordinator routing request to specialist via: {ToolName}", toolName);
 
-            var specialist = Array.Find(Specialists, s => $"route_to_{s.Name}" == toolName);
+            var specialist = _specialists.FirstOrDefault(s => $"route_to_{s.Name}" == toolName);
             if (specialist is null) 
             {
                 _logger.LogWarning("Unknown specialist route requested: {ToolName}", toolName);
@@ -207,10 +159,10 @@ public class OrchestratorAgentService : IAgentService
     }
 
     /// <summary>Builds one <c>route_to_{name}</c> function tool per specialist for the coordinator.</summary>
-    private static JsonArray BuildRouteTools()
+    private JsonArray BuildRouteTools()
     {
         var tools = new JsonArray();
-        foreach (var s in Specialists)
+        foreach (var s in _specialists)
         {
             tools.Add(new JsonObject
             {
@@ -241,13 +193,13 @@ public class OrchestratorAgentService : IAgentService
     private string BuildCoordinatorPrompt()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("You are the Coordinator for a pain-management clinic's AI assistant.");
+        sb.AppendLine($"You are the Coordinator for a {_clinicProfile.ClinicDescriptor}'s AI assistant.");
         sb.AppendLine("You do NOT perform clinic operations yourself. Read the user's request and delegate it to");
         sb.AppendLine("exactly ONE specialist using the matching route_to_* tool, passing a clear 'task'. After the");
         sb.AppendLine("specialist responds, relay its answer to the user faithfully (you may lightly adjust tone, but");
         sb.AppendLine("do not invent information). For a simple greeting or an unclear request, reply briefly yourself");
         sb.AppendLine("and ask what they need — do not route. Available specialists:");
-        foreach (var s in Specialists)
+        foreach (var s in _specialists)
             sb.AppendLine($"- route_to_{s.Name}: {s.Description}");
         sb.AppendLine(BuildUserContext());
         return sb.ToString();

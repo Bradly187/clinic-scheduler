@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using ClinicScheduler.Web.Services;
 using ClinicScheduler.Web.Services.Skills;
+using ClinicScheduler.Web.Services.Workflows;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -46,7 +47,16 @@ public class OrchestratorAgentServiceTests
             .ReturnsAsync("Upcoming Appointments: 2 found");
 
         var agent = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object, NullLogger<AgentService>.Instance);
-        var orchestrator = new OrchestratorAgentService(agent, _mockExecutor.Object, _mockUserService.Object, NullLogger<OrchestratorAgentService>.Instance);
+
+        // The specialist roster now comes from registered workflow packs (Clinic:Specialty unset -> default).
+        var clinicProfile = new ClinicProfile(_config);
+        var packs = new IWorkflowPack[]
+        {
+            new SchedulingWorkflowPack(clinicProfile),
+            new TreatmentPlanWorkflowPack(clinicProfile),
+            new TriageWorkflowPack(clinicProfile),
+        };
+        var orchestrator = new OrchestratorAgentService(agent, _mockExecutor.Object, _mockUserService.Object, packs, clinicProfile, NullLogger<OrchestratorAgentService>.Instance);
 
         var chatHistory = new JsonArray
         {
