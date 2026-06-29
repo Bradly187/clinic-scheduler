@@ -7,6 +7,7 @@ using ClinicScheduler.Core.Services;
 using ClinicScheduler.Infrastructure.Data;
 using ClinicScheduler.Web;
 using ClinicScheduler.Web.Services.Skills;
+using ClinicScheduler.Web.Services.Skills.Implementations;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -46,18 +47,27 @@ public class SkillExecutorTests : IDisposable
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Clinic:TimeZoneLabel"] = "clinic time" })
             .Build();
 
-        _executor = new SkillExecutor(
-            _mockUserService.Object,
-            _mockAppointmentRepo.Object,
-            _mockPatientRepo.Object,
-            _mockTherapistRepo.Object,
-            _mockTherapyTypeRepo.Object,
-            _mockRoomRepo.Object,
-            null!,  // AppointmentSchedulingService not exercised in these tests
-            null!,  // TreatmentPlanScheduleService not exercised in these tests
-            _mockAppointmentEventService.Object,
-            _dbContext,
-            config);
+        // Each skill is now a self-registering ISkill; the executor just dispatches over them.
+        // AppointmentSchedulingService / TreatmentPlanScheduleService are passed null! because no
+        // test here drives a skill far enough to actually call them (reschedule only previews).
+        var clock = new ClinicTimeFormatter(config);
+        var skills = new List<ISkill>
+        {
+            new GetMyAppointmentsSkill(_mockUserService.Object, _mockPatientRepo.Object, _dbContext, clock),
+            new GetAppointmentsSkill(_mockUserService.Object, _mockPatientRepo.Object, _dbContext, clock),
+            new ScheduleAppointmentSkill(_mockUserService.Object, _mockPatientRepo.Object, _mockTherapistRepo.Object, _mockTherapyTypeRepo.Object, _mockRoomRepo.Object, null!, _mockAppointmentEventService.Object, clock),
+            new RescheduleAppointmentSkill(_mockUserService.Object, _mockPatientRepo.Object, _mockTherapistRepo.Object, _mockAppointmentRepo.Object, null!, _mockAppointmentEventService.Object, _dbContext, clock),
+            new CancelMyAppointmentSkill(_mockUserService.Object, _mockPatientRepo.Object, _mockAppointmentRepo.Object, _mockAppointmentEventService.Object, clock),
+            new CancelAnyAppointmentSkill(_mockUserService.Object, _mockPatientRepo.Object, _mockAppointmentRepo.Object, _mockAppointmentEventService.Object, clock),
+            new JoinWaitlistSkill(_mockUserService.Object, _dbContext),
+            new GetMyWaitlistSkill(_mockUserService.Object, _dbContext),
+            new LeaveWaitlistSkill(_mockUserService.Object, _dbContext),
+            new GetMyTreatmentPlanSkill(_mockUserService.Object, _dbContext),
+            new CreateTreatmentPlanSkill(_mockUserService.Object, _dbContext),
+            new GeneratePlanAppointmentsSkill(_mockUserService.Object, _mockRoomRepo.Object, null!, _mockAppointmentEventService.Object),
+        };
+
+        _executor = new SkillExecutor(skills);
     }
 
     public void Dispose() => _dbContext.Dispose();
