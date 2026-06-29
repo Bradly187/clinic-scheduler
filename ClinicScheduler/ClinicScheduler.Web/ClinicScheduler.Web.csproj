@@ -5,7 +5,10 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UserSecretsId>3d76fbad-2b7e-45dc-a408-dd91c7bbd65c</UserSecretsId>
+        <!-- Keep the XML doc file (Swagger reads it for API controllers) but don't warn on
+             undocumented members — internal DI components (skills, packs) aren't a public API. -->
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
     <ItemGroup>
