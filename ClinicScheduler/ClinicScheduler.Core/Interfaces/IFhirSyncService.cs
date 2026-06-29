@@ -12,4 +12,7 @@ public interface IFhirSyncService
 
     /// <summary>Pushes a clinic location to the EHR as a FHIR Location; returns the remote id.</summary>
     Task<string> SyncLocationAsync(Location location, CancellationToken ct = default);
+
+    /// <summary>Pushes a patient encounter/visit to the EHR as a FHIR Encounter; returns the remote id.</summary>
+    Task<string> SyncEncounterAsync(Encounter encounter, CancellationToken ct = default);
 }

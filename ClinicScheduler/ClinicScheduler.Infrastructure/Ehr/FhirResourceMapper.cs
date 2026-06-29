@@ -4,11 +4,14 @@ using DomainPatient = ClinicScheduler.Core.Entities.Patient;
 using DomainAppointment = ClinicScheduler.Core.Entities.Appointment;
 using DomainTherapist = ClinicScheduler.Core.Entities.Therapist;
 using DomainLocation = ClinicScheduler.Core.Entities.Location;
+using DomainEncounter = ClinicScheduler.Core.Entities.Encounter;
 using DomainAppointmentStatus = ClinicScheduler.Core.Entities.AppointmentStatus;
+using DomainEncounterStatus = ClinicScheduler.Core.Entities.EncounterStatus;
 using FhirPatient = Hl7.Fhir.Model.Patient;
 using FhirAppointment = Hl7.Fhir.Model.Appointment;
 using FhirPractitioner = Hl7.Fhir.Model.Practitioner;
 using FhirLocation = Hl7.Fhir.Model.Location;
+using FhirEncounter = Hl7.Fhir.Model.Encounter;
 
 namespace ClinicScheduler.Infrastructure.Ehr;
 
@@ -100,6 +103,40 @@ public static class FhirResourceMapper
         return resource;
     }
 
+    public static FhirEncounter ToFhirEncounter(DomainEncounter encounter)
+    {
+        var resource = new FhirEncounter
+        {
+            Id = encounter.FhirId,
+            Status = MapEncounterStatus(encounter.Status),
+            Class = new Coding("http://terminology.hl7.org/CodeSystem/v3-ActCode", "AMB", "ambulatory"),
+            Period = new Period { StartElement = new FhirDateTime(new DateTimeOffset(encounter.PeriodStart)) }
+        };
+
+        if (encounter.PeriodEnd.HasValue)
+            resource.Period.EndElement = new FhirDateTime(new DateTimeOffset(encounter.PeriodEnd.Value));
+
+        if (!string.IsNullOrWhiteSpace(encounter.Patient?.FhirId))
+            resource.Subject = new ResourceReference($"Patient/{encounter.Patient.FhirId}");
+
+        if (!string.IsNullOrWhiteSpace(encounter.Therapist?.FhirId))
+            resource.Participant.Add(new FhirEncounter.ParticipantComponent
+            {
+                Individual = new ResourceReference($"Practitioner/{encounter.Therapist.FhirId}")
+            });
+
+        if (!string.IsNullOrWhiteSpace(encounter.Location?.FhirId))
+            resource.Location.Add(new FhirEncounter.LocationComponent
+            {
+                Location = new ResourceReference($"Location/{encounter.Location.FhirId}")
+            });
+
+        if (!string.IsNullOrWhiteSpace(encounter.ReasonText))
+            resource.ReasonCode.Add(new CodeableConcept { Text = encounter.ReasonText });
+
+        return resource;
+    }
+
     private static void AddParticipant(FhirAppointment appointment, string resourceType, string? fhirId)
     {
         if (string.IsNullOrWhiteSpace(fhirId)) return;
@@ -117,5 +154,14 @@ public static class FhirResourceMapper
         DomainAppointmentStatus.Canceled => FhirAppointment.AppointmentStatus.Cancelled,
         DomainAppointmentStatus.Missed => FhirAppointment.AppointmentStatus.Noshow,
         _ => FhirAppointment.AppointmentStatus.Booked
+    };
+
+    private static FhirEncounter.EncounterStatus MapEncounterStatus(DomainEncounterStatus status) => status switch
+    {
+        DomainEncounterStatus.Planned => FhirEncounter.EncounterStatus.Planned,
+        DomainEncounterStatus.InProgress => FhirEncounter.EncounterStatus.InProgress,
+        DomainEncounterStatus.Finished => FhirEncounter.EncounterStatus.Finished,
+        DomainEncounterStatus.Cancelled => FhirEncounter.EncounterStatus.Cancelled,
+        _ => FhirEncounter.EncounterStatus.Planned
     };
 }

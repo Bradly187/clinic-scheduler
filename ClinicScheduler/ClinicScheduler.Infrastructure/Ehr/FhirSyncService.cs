@@ -9,6 +9,7 @@ using DomainPatient = ClinicScheduler.Core.Entities.Patient;
 using DomainAppointment = ClinicScheduler.Core.Entities.Appointment;
 using DomainTherapist = ClinicScheduler.Core.Entities.Therapist;
 using DomainLocation = ClinicScheduler.Core.Entities.Location;
+using DomainEncounter = ClinicScheduler.Core.Entities.Encounter;
 using Task = System.Threading.Tasks.Task;
 
 namespace ClinicScheduler.Infrastructure.Ehr;
@@ -57,6 +58,9 @@ public class FhirSyncService : IFhirSyncService
 
     public Task<string> SyncLocationAsync(DomainLocation location, CancellationToken ct = default)
         => SyncAsync(FhirResourceMapper.ToFhirLocation(location), location.FhirId, "Location", location.Id);
+
+    public Task<string> SyncEncounterAsync(DomainEncounter encounter, CancellationToken ct = default)
+        => SyncAsync(FhirResourceMapper.ToFhirEncounter(encounter), encounter.FhirId, "Encounter", encounter.Id);
 
     /// <summary>
     /// Creates the resource if it has no remote id yet, otherwise updates it. Returns the remote id,

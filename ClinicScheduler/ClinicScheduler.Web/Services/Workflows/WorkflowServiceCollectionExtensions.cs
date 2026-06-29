@@ -13,6 +13,7 @@ public static class WorkflowServiceCollectionExtensions
         services.AddSingleton<IWorkflowPack, SchedulingWorkflowPack>();
         services.AddSingleton<IWorkflowPack, TreatmentPlanWorkflowPack>();
         services.AddSingleton<IWorkflowPack, TriageWorkflowPack>();
+        services.AddSingleton<IWorkflowPack, IntakeWorkflowPack>();
 
         return services;
     }

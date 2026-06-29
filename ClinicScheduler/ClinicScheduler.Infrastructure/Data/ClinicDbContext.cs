@@ -49,6 +49,7 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
     public DbSet<ScheduleConflict> ScheduleConflicts => Set<ScheduleConflict>();
     public DbSet<WaitlistEntry> WaitlistEntries => Set<WaitlistEntry>();
     public DbSet<TherapistShift> TherapistShifts => Set<TherapistShift>();
+    public DbSet<Encounter> Encounters => Set<Encounter>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -132,6 +133,30 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
             .WithMany()
             .HasForeignKey(w => w.FulfilledAppointmentId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        // Encounter (intake/visit): patient is required; therapist/location optional and kept
+        // when the related row is deleted (only the patient cascade removes the encounter).
+        modelBuilder.Entity<Encounter>()
+            .HasOne(e => e.Patient)
+            .WithMany()
+            .HasForeignKey(e => e.PatientId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Encounter>()
+            .HasOne(e => e.Therapist)
+            .WithMany()
+            .HasForeignKey(e => e.TherapistId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<Encounter>()
+            .HasOne(e => e.Location)
+            .WithMany()
+            .HasForeignKey(e => e.LocationId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<Encounter>()
+            .HasIndex(e => e.PatientId)
+            .HasDatabaseName("IX_Encounters_PatientId");
 
         // Optimistic concurrency: PostgreSQL's xmin system column detects when two
         // users edit the same record; the second save throws DbUpdateConcurrencyException

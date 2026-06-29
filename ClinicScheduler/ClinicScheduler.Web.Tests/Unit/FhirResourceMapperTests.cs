@@ -4,6 +4,7 @@ using FluentAssertions;
 using Xunit;
 using FhirAppointment = Hl7.Fhir.Model.Appointment;
 using FhirContactPoint = Hl7.Fhir.Model.ContactPoint;
+using FhirEncounter = Hl7.Fhir.Model.Encounter;
 
 namespace ClinicScheduler.Web.Tests.Unit;
 
@@ -109,6 +110,45 @@ public class FhirResourceMapperTests
         DriveToStatus(appointment, domain);
 
         FhirResourceMapper.ToFhirAppointment(appointment).Status.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ToFhirEncounter_MapsStatusClassReasonAndReferences()
+    {
+        var patient = new Patient("John", "Doe", "john@test.com", new DateOnly(1990, 1, 1));
+        patient.SetFhirId("p1");
+        var therapist = new Therapist("Jane", "Smith", "jane@test.com");
+        therapist.SetFhirId("t1");
+        var location = new Location("Main Clinic", "123 Main St");
+        location.SetFhirId("l1");
+
+        var encounter = new Encounter(patient, DateTime.UtcNow, "Back pain", therapist, location);
+        encounter.SetFhirId("e1");
+
+        var fhir = FhirResourceMapper.ToFhirEncounter(encounter);
+
+        fhir.Id.Should().Be("e1");
+        fhir.Status.Should().Be(FhirEncounter.EncounterStatus.Planned);
+        fhir.Class.Code.Should().Be("AMB");
+        fhir.Subject!.Reference.Should().Be("Patient/p1");
+        fhir.Participant.Should().ContainSingle().Which.Individual!.Reference.Should().Be("Practitioner/t1");
+        fhir.Location.Should().ContainSingle().Which.Location!.Reference.Should().Be("Location/l1");
+        fhir.ReasonCode.Should().ContainSingle().Which.Text.Should().Be("Back pain");
+        fhir.Period.Start.Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public void ToFhirEncounter_OmitsReferences_WhenRelatedResourcesNotSynced()
+    {
+        var patient = new Patient("John", "Doe", "john@test.com", new DateOnly(1990, 1, 1));
+        var encounter = new Encounter(patient, DateTime.UtcNow);
+
+        var fhir = FhirResourceMapper.ToFhirEncounter(encounter);
+
+        fhir.Subject.Should().BeNull();
+        fhir.Participant.Should().BeEmpty();
+        fhir.Location.Should().BeEmpty();
+        fhir.ReasonCode.Should().BeEmpty();
     }
 
     private static (Appointment, Location) BuildAppointment(string? patientFhir, string? therapistFhir, string? locationFhir)

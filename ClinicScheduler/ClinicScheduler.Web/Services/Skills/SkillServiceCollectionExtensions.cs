@@ -30,6 +30,11 @@ public static class SkillServiceCollectionExtensions
         services.AddScoped<ISkill, CreateTreatmentPlanSkill>();
         services.AddScoped<ISkill, GeneratePlanAppointmentsSkill>();
 
+        // Intake
+        services.AddScoped<ISkill, RegisterPatientSkill>();
+        services.AddScoped<ISkill, VerifyPatientDemographicsSkill>();
+        services.AddScoped<ISkill, StartEncounterSkill>();
+
         services.AddScoped<ISkillExecutor, SkillExecutor>();
         return services;
     }
