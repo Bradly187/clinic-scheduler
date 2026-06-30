@@ -6,12 +6,35 @@ Swagger UI is available at `/swagger` in Development mode. The OpenAPI spec is a
 
 ## Authentication
 
+The app supports two auth schemes, selected per request: a **bearer JWT** when an
+`Authorization: Bearer …` header is present, otherwise the **Identity cookie**.
+
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
+| `/api/auth/token` | POST | None | Exchange email + password for a signed JWT (for API clients) |
 | `/account/login` | POST | None | Sign in with email and password (form POST, cookie-based) |
 | `/account/logout` | POST | None | Sign out the current user |
 
-Login accepts `email`, `password`, and optional `returnUrl` as form fields. On success, redirects to `returnUrl` or `/`. On failure, redirects to `/login?error=1` (bad credentials) or `/login?error=2` (locked out).
+### POST `/api/auth/token`
+
+```json
+{ "email": "admin@clinic.com", "password": "…" }
+```
+
+Returns a JWT plus its expiry and the user's roles. Send it on subsequent requests as
+`Authorization: Bearer {token}`. The token carries the user's roles and their `clinic` (tenant)
+claim, so every authenticated request is automatically scoped to that user's clinic.
+
+```json
+{ "token": "eyJ…", "expiresAt": "2026-07-01T12:00:00Z", "roles": ["Admin"] }
+```
+
+**Responses:** `200 OK` with the token, `401 Unauthorized` on invalid credentials. The endpoint
+is rate-limited (per-IP `login` policy) to throttle credential stuffing.
+
+Cookie login accepts `email`, `password`, and optional `returnUrl` as form fields. On success,
+redirects to `returnUrl` or `/`. On failure, redirects to `/login?error=1` (bad credentials) or
+`/login?error=2` (locked out).
 
 ## Appointments
 
@@ -231,6 +254,40 @@ No request body. Returns the missed appointment and the newly created reschedule
   "therapyTypeIds": [1, 3]
 }
 ```
+
+## Waitlist
+
+**Authorization:** Authenticated users. Patients act on their own entries; staff manage all.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/waitlist` | GET | List waitlist entries |
+| `/api/waitlist/{id}` | GET | Get a waitlist entry by ID |
+| `/api/waitlist` | POST | Add a patient to the waitlist for a date window |
+| `/api/waitlist/{id}/cancel` | POST | Cancel a waitlist entry |
+| `/api/waitlist/process` | POST | Attempt to fulfill waitlist entries against open slots (staff) |
+
+When a matching opening exists, a waitlist entry is fulfilled by automatically booking the first
+matching appointment and linking it back to the entry.
+
+## Audit Logs
+
+**Authorization:** Admin / Auditor.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/audit-logs` | GET | List audit-log entries (immutable change trail) |
+| `/api/audit-logs/{id}` | GET | Get an audit-log entry by ID |
+
+Audit entries are written automatically for every created/modified/deleted entity; sensitive
+fields are redacted in the change summary.
+
+## Pagination
+
+List endpoints accept optional `page` and `pageSize` query parameters (default page size 50, max
+200). When neither is supplied the endpoint returns the full unpaged list (legacy behavior). When
+paging is requested, the total (unpaged) row count is returned in the `X-Total-Count` response
+header.
 
 ## Common Response Patterns
 

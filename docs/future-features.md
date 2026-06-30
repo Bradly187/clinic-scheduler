@@ -12,8 +12,11 @@ If text message verification is preferred over authenticator apps, Amazon SNS ca
 
 ## Integrations
 
-### EHR Integration
-Develop a direct interface with Electronic Health Record systems to sync patient medical history and treatment progress automatically. Would require HL7 FHIR or similar healthcare interoperability standard.
+### EHR Integration (in progress)
+A FHIR resource-mapping layer (`IFhirSyncService`) already maps Patient, Appointment,
+Practitioner, Location, and Encounter to FHIR resources and records remote `FhirId`s. The
+remaining work is a production bidirectional sync against a real EHR (Epic, Athena, etc.) and
+broader resource coverage. See [multi-workflow-strategy.md](multi-workflow-strategy.md).
 
 ### Telehealth Expansion
 Extend the scheduling platform to manage virtual appointments, allowing a hybrid model of in-person and remote therapy sessions. Would add a video conferencing link field to appointments and integrate with a telehealth provider (e.g., Twilio Video, Zoom API).
@@ -28,12 +31,10 @@ Implement algorithms to analyze therapist workloads and patient attendance patte
 ### Automated Backup & Disaster Recovery
 Implement automated PostgreSQL backups (pg_dump on a cron schedule or AWS RDS automated backups) and a documented disaster recovery plan to meet the 99.5% uptime target from the original requirements.
 
-### Health Check Endpoint
-Add ASP.NET Core health checks (`/healthz`) with database connectivity verification for load balancer monitoring:
-```csharp
-builder.Services.AddHealthChecks().AddNpgSql(connectionString);
-app.MapHealthChecks("/healthz");
-```
+### Health Check Endpoint — ✅ done
+ASP.NET Core health checks are implemented: `/health/live` (liveness, no dependencies) and
+`/health` (readiness, includes the PostgreSQL connectivity check). See
+[deployment-https.md](deployment-https.md).
 
 ### Performance Benchmarking
 Establish automated performance tests to verify the 2-second response time target for scheduling operations. Could use k6 or NBomber for load testing.

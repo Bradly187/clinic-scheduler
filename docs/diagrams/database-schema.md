@@ -177,7 +177,7 @@ erDiagram
 - **Check constraints:** `TREATMENT_PLAN.FrequencyPerWeek ∈ {2,3,4}`,
   `TREATMENT_PLAN.TotalDays ∈ {20,30,50}`, `LOCATION.SlotDurationMinutes BETWEEN 5 AND 240`.
 - **Status enums:** `APPOINTMENT.Status` = Scheduled / Completed / Canceled / Missed ·
-  `TREATMENT_PLAN.Status` = Active / Completed / Suspended ·
+  `TREATMENT_PLAN.Status` = Active / Suspended / Ended ·
   `APPOINTMENT_REQUEST.Status` = Pending / Approved / Denied · `AUDIT_LOG.Action` =
   Created / Modified / Deleted.
 - **Concurrency:** `APPOINTMENT`, `PATIENT`, `THERAPIST`, `TREATMENT_PLAN` carry a PostgreSQL

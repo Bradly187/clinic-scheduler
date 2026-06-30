@@ -29,7 +29,7 @@ In Development mode, `UseHttpsRedirection()` is active so developers get HTTPS l
 └──────────┘                          └──────────────────┘                          └─────────────────┘
                                               │
                                               │ Health check
-                                              │ GET /healthz or /
+                                              │ GET /health/live
                                               ▼
                                       ┌─────────────────┐
                                       │  App Container   │
@@ -49,7 +49,8 @@ In production, the app enables HTTP Strict Transport Security:
 app.UseHsts();
 ```
 
-This tells browsers to always use HTTPS for future requests. The default max-age is 30 days.
+This tells browsers to always use HTTPS for future requests. The app configures a **max-age of
+one year (365 days) with `includeSubDomains`** (`AddHsts` in `Program.cs`).
 
 ## Docker Container Configuration
 
@@ -90,7 +91,7 @@ app:
 | Target protocol | HTTP (8080) | Forwards to app container |
 | TLS certificate | Valid certificate for your domain | Use ACM (AWS), Let's Encrypt, or your CA |
 | TLS minimum version | TLS 1.2 | TLS 1.3 preferred |
-| Health check path | `/` or a custom `/healthz` endpoint | HTTP GET, expect 200 |
+| Health check path | `/health/live` (liveness) or `/health` (readiness, incl. DB) | HTTP GET, expect 200 |
 | Health check interval | 30 seconds | Adjust based on requirements |
 | Unhealthy threshold | 3 consecutive failures | Removes container from rotation |
 | Sticky sessions | Not required | The app uses cookie-based auth; any instance can handle requests |
@@ -118,16 +119,13 @@ For AWS Application Load Balancer:
 4. Set the default action to forward to the target group.
 5. Optionally add an HTTP listener on port 80 that redirects to HTTPS.
 
-### Health Check Endpoint
+### Health Check Endpoints
 
-The app serves the Blazor app at `/`, which returns `200 OK` for authenticated and unauthenticated requests (the login page). This works as a basic health check. For a dedicated health check, consider adding ASP.NET Core health checks:
+The app exposes dedicated ASP.NET Core health checks (configured in `Program.cs`):
 
-```csharp
-builder.Services.AddHealthChecks()
-    .AddNpgSql(connectionString);
-
-app.MapHealthChecks("/healthz");
-```
+- **`/health/live`** — liveness; answers without touching dependencies. Use this for the load
+  balancer target health check.
+- **`/health`** — readiness; includes the PostgreSQL connectivity check (`AddNpgSql`). Anonymous.
 
 ## Environment Variables for Production
 
