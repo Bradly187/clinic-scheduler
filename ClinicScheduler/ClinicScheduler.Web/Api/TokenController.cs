@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using ClinicScheduler.Core.Auth;
 using ClinicScheduler.Infrastructure.Data;
 using ClinicScheduler.Web.Contracts.Auth;
 using Microsoft.AspNetCore.Authorization;
@@ -48,6 +49,9 @@ public class TokenController : ControllerBase
             new(JwtRegisteredClaimNames.Jti,   Guid.NewGuid().ToString()),
             new(ClaimTypes.Name,               user.Email!),
         };
+        // Tenant claim: scopes every request made with this token to the user's clinic.
+        if (user.ClinicId is { } clinicId)
+            claims.Add(new Claim(ClinicClaimTypes.ClinicId, clinicId.ToString()));
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
 
         var issuer   = _config["Jwt:Issuer"]   ?? "ClinicAgent";

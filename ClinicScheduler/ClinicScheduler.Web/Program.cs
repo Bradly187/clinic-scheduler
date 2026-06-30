@@ -202,6 +202,10 @@ try
     .AddEntityFrameworkStores<ClinicDbContext>()
     .AddDefaultTokenProviders();
 
+    // Stamp the tenant (clinic) claim onto the Identity cookie principal at sign-in, so
+    // cookie-authenticated requests carry the same tenant context the API JWT emits.
+    builder.Services.AddScoped<IUserClaimsPrincipalFactory<AppUser>, ClinicClaimsPrincipalFactory>();
+
     // Security:RequireHttps is enabled by the deployment when TLS terminates at the ALB
     // (set automatically by Terraform when an ACM certificate is configured)
     var requireHttps = builder.Configuration.GetValue<bool>("Security:RequireHttps");
