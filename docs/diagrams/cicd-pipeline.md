@@ -10,7 +10,7 @@ flowchart LR
         Checkout --> Setup[".NET 10<br/>SDK setup"]
         Setup --> Restore["Restore<br/>Web + Core.Tests"]
         Restore --> BuildStep["Build<br/>(Release)"]
-        BuildStep --> Test["Run<br/>Core.Tests<br/>(69 unit tests)"]
+        BuildStep --> Test["Run<br/>Core.Tests<br/>(157 unit tests)"]
     end
 
     Test --> Gate{"Repo ==<br/>Bradly187/<br/>clinic-scheduler?"}
@@ -29,8 +29,8 @@ flowchart LR
 
 ## What's Covered
 - ✅ `ClinicScheduler.Web` — build
-- ✅ `ClinicScheduler.Core.Tests` — 69 entity unit tests
+- ✅ `ClinicScheduler.Core.Tests` — 157 unit tests
 
 ## What's Not Covered in Pipeline
-- ❌ `ClinicScheduler.Web.Tests` — 24 service unit + 53 integration tests (require Docker/Testcontainers)
+- ❌ `ClinicScheduler.Web.Tests` — 92 unit + 43 integration tests (require Docker/Testcontainers)
 - ❌ Branch protection / PR gating (deploys on any push to MVP)
