@@ -28,13 +28,13 @@ graph TB
         Tools["<b>ClinicTools</b> (stdio)<br/>list_therapists · get_appointments<br/>schedule · cancel"]
     end
 
-    subgraph Core ["ClinicScheduler.Core — domain (net9, zero deps)"]
+    subgraph Core ["ClinicScheduler.Core — domain (net10, zero deps)"]
         Ent["<b>Entities + enums</b><br/>Clinic(tenant) · Patient · Therapist<br/>Appointment · TreatmentPlan · Encounter<br/>Waitlist · Shift · Notification"]
         Svc["<b>Domain services</b><br/>AppointmentScheduling · Waitlist<br/>MissedAppointment · TreatmentPlanSchedule"]
         If["<b>Interfaces</b><br/>IRepository&lt;T&gt; · ICurrentUserService · ISkill"]
     end
 
-    subgraph Infra ["ClinicScheduler.Infrastructure (net9)"]
+    subgraph Infra ["ClinicScheduler.Infrastructure (net10)"]
         Db["<b>ClinicDbContext (EF Core 10)</b><br/>audit logging · at-rest encryption<br/>optimistic concurrency (xmin)"]
         Repo["Repository&lt;T&gt;"]
         Fhir["<b>IFhirSyncService</b><br/>FHIR resource mapper"]

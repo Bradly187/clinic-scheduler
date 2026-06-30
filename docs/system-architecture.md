@@ -35,13 +35,13 @@ graph TB
         Tools["ClinicTools<br/>list/get/schedule/cancel"]
     end
 
-    subgraph Core ["ClinicScheduler.Core — domain (net9)"]
+    subgraph Core ["ClinicScheduler.Core — domain (net10)"]
         Entities["Entities + enums<br/>Clinic(tenant) · Patient · Therapist<br/>Appointment · TreatmentPlan · Encounter…"]
         DomainSvc["Domain services<br/>AppointmentSchedulingService<br/>Waitlist · MissedAppt · TreatmentPlan"]
         Iface["IRepository&lt;T&gt; · ICurrentUserService · ISkill"]
     end
 
-    subgraph Infra ["ClinicScheduler.Infrastructure (net9)"]
+    subgraph Infra ["ClinicScheduler.Infrastructure (net10)"]
         Db["ClinicDbContext (EF Core 10)<br/>audit logging · at-rest encryption<br/>optimistic concurrency (xmin)"]
         Repo["Repository&lt;T&gt;"]
         Fhir["IFhirSyncService<br/>FHIR resource mapper"]
@@ -79,8 +79,8 @@ graph TB
 
 | Project | Target | Responsibility |
 |---|---|---|
-| **Core** | net9.0 | Domain entities (incl. `Clinic` tenant root), enums, domain services, interfaces (`IRepository<T>`, `ICurrentUserService`, `ISkill`), auth claim types. Zero project dependencies. |
-| **Infrastructure** | net9.0 | `ClinicDbContext` (EF Core 10 + Identity), `Repository<T>`, migrations, automatic audit logging, at-rest encryption, `IFhirSyncService` + FHIR resource mapper. |
+| **Core** | net10.0 | Domain entities (incl. `Clinic` tenant root), enums, domain services, interfaces (`IRepository<T>`, `ICurrentUserService`, `ISkill`), auth claim types. Zero project dependencies. |
+| **Infrastructure** | net10.0 | `ClinicDbContext` (EF Core 10 + Identity), `Repository<T>`, migrations, automatic audit logging, at-rest encryption, `IFhirSyncService` + FHIR resource mapper. |
 | **Web** | net10.0 | ASP.NET Core host: REST API, Blazor Server, Identity/JWT auth, DI, the orchestrator + workflow packs + skills, OpenTelemetry. |
 | **Web.Client** | net10.0 | Blazor WebAssembly entry point for interactive components. |
 | **Shared** | net10.0 | Razor pages/components (incl. `AgentChat`) shared by Web and MAUI. |
