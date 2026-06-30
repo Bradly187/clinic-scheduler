@@ -33,6 +33,7 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
         _dataProtectionProvider = dataProtectionProvider;
     }
 
+    public DbSet<Clinic> Clinics => Set<Clinic>();
     public DbSet<Patient> Patients => Set<Patient>();
     public DbSet<Therapist> Therapists => Set<Therapist>();
     public DbSet<Location> Locations => Set<Location>();
@@ -54,6 +55,20 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // Tenant root. Each clinic owns all clinical/scheduling data beneath it; the per-entity
+        // ClinicId, query filters, and auto-stamping arrive in stage 2 (docs/multi-tenancy-design.md).
+        modelBuilder.Entity<Clinic>()
+            .HasIndex(c => c.Slug)
+            .IsUnique();
+
+        // The user's clinic is the server-side source of truth for tenant resolution. Restrict
+        // delete so a clinic with users cannot be removed out from under them.
+        modelBuilder.Entity<AppUser>()
+            .HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(u => u.ClinicId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<TreatmentPlanTherapy>()
             .HasKey(tpt => new { tpt.TreatmentPlanId, tpt.TherapyTypeId });
