@@ -53,9 +53,12 @@ public class FullLifecycleTests : IAsyncLifetime
             EndTime = Slot9am.AddMinutes(30),
             Status = "Completed"
         });
-        completeResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        completeResponse.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.NoContent);
 
-        var completeDoc = await JsonDocument.ParseAsync(await completeResponse.Content.ReadAsStreamAsync());
+        // Verify the appointment is now Completed
+        var getApptResponse = await _fixture.Client.GetAsync($"/api/appointments/{appointmentId}");
+        getApptResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var completeDoc = await JsonDocument.ParseAsync(await getApptResponse.Content.ReadAsStreamAsync());
         completeDoc.RootElement.GetProperty("status").GetString().Should().Be("Completed");
 
         // ─── 4. Verify draft invoice was auto-generated ───
