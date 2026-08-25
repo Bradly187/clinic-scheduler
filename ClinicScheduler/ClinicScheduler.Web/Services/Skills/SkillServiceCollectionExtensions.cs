@@ -35,6 +35,18 @@ public static class SkillServiceCollectionExtensions
         services.AddScoped<ISkill, VerifyPatientDemographicsSkill>();
         services.AddScoped<ISkill, StartEncounterSkill>();
 
+        // Public booking
+        services.AddScoped<ISkill, CheckAvailabilitySkill>();
+        services.AddScoped<ISkill, ListTherapistsPublicSkill>();
+        services.AddScoped<ISkill, ListTherapyTypesPublicSkill>();
+        services.AddScoped<ISkill, BookAppointmentPublicSkill>();
+
+        // Billing (staff)
+        services.AddScoped<ISkill, GetPatientBalanceSkill>();
+        services.AddScoped<ISkill, GetPatientInvoicesSkill>();
+        services.AddScoped<ISkill, CreateInvoiceSkill>();
+        services.AddScoped<ISkill, RecordPaymentSkill>();
+
         services.AddScoped<ISkillExecutor, SkillExecutor>();
         return services;
     }

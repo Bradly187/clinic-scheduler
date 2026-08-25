@@ -108,6 +108,7 @@ try
     builder.Services.AddScoped<WaitlistService>();
     builder.Services.AddScoped<WaitlistFulfillmentNotifier>();
     builder.Services.AddScoped<AppointmentNotificationService>();
+    builder.Services.AddScoped<IBillingService, BillingService>();
     builder.Services.AddSingleton<ClinicScheduler.Web.Services.Skills.ISkillRegistry, ClinicScheduler.Web.Services.Skills.SkillRegistry>();
     // Each agent tool is a self-registering ISkill; the executor just dispatches to them.
     builder.Services.AddClinicSkills();
@@ -163,6 +164,14 @@ try
     builder.Services.Configure<SmsOptions>(builder.Configuration.GetSection(SmsOptions.SectionName));
     builder.Services.AddHttpClient("twilio");
     builder.Services.AddSingleton<ISmsSender, TwilioSmsSender>();
+
+    // Stripe payment processing (no-op until the Stripe section is configured)
+    builder.Services.Configure<StripeOptions>(builder.Configuration.GetSection(StripeOptions.SectionName));
+    builder.Services.AddScoped<IPaymentGateway, StripePaymentGateway>();
+
+    // Superbill / CMS-1500 generation
+    builder.Services.AddScoped<SuperbillService>();
+    builder.Services.AddSingleton<Cms1500Generator>();
 
     // FHIR Integration
     builder.Services.Configure<FhirSettings>(builder.Configuration.GetSection("FhirSettings"));
@@ -503,6 +512,13 @@ try
         var response = await agentService.ProcessMessageAsync(chatHistory);
         return Results.Ok(new { response });
     }).DisableAntiforgery().RequireAuthorization();
+
+    // Public booking chat endpoint — rate-limited, anonymous access for patient self-booking
+    app.MapPost("/api/booking/chat", async (JsonArray chatHistory, ClinicScheduler.Shared.Services.IAgentService agentService) =>
+    {
+        var response = await agentService.ProcessMessageAsync(chatHistory);
+        return Results.Ok(new { response });
+    }).DisableAntiforgery().RequireRateLimiting("login");
 
     app.MapRazorComponents<App>()
         .AddInteractiveServerRenderMode()

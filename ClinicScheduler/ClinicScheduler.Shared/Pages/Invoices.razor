@@ -1,0 +1,128 @@
+@page "/invoices"
+@attribute [Authorize(Roles = "Admin,ClinicManager,Staff")]
+@inject IDbContextFactory<ClinicDbContext> DbFactory
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>Invoices</PageTitle>
+
+<div class="d-flex align-center justify-space-between mb-4">
+    <MudText Typo="Typo.h5">Invoices</MudText>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Add"
+               OnClick="@(() => _showCreate = true)">
+        New Invoice
+    </MudButton>
+</div>
+
+<!-- Filters -->
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudGrid>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="InvoiceStatus?" @bind-Value="_filterStatus" Label="Status" Variant="Variant.Outlined" Clearable="true">
+                @foreach (var s in Enum.GetValues<InvoiceStatus>())
+                {
+                    <MudSelectItem Value="@((InvoiceStatus?)s)">@s</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudTextField @bind-Value="_filterPatient" Label="Patient Name" Variant="Variant.Outlined"
+                          Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" />
+        </MudItem>
+        <MudItem xs="12" sm="4" Class="d-flex align-end">
+            <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Apply</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-4" />
+}
+
+<MudTable Items="_invoices" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm" Loading="_loading">
+    <HeaderContent>
+        <MudTh>Invoice #</MudTh>
+        <MudTh>Patient</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Total</MudTh>
+        <MudTh>Balance</MudTh>
+        <MudTh>Issued</MudTh>
+        <MudTh>Due</MudTh>
+        <MudTh>Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate Context="inv">
+        <MudTd>@inv.InvoiceNumber</MudTd>
+        <MudTd>@inv.Patient?.FullName</MudTd>
+        <MudTd>
+            <MudChip T="string" Size="Size.Small" Color="@StatusColor(inv.Status)">@inv.Status</MudChip>
+        </MudTd>
+        <MudTd>@inv.Total.ToString("C")</MudTd>
+        <MudTd>@inv.Balance.ToString("C")</MudTd>
+        <MudTd>@inv.IssuedAt.ToLocalTime().ToString("MMM d, yyyy")</MudTd>
+        <MudTd>@inv.DueDate.ToLocalTime().ToString("MMM d, yyyy")</MudTd>
+        <MudTd>
+            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
+                           OnClick="@(() => Nav.NavigateTo($"/invoices/{inv.Id}"))" Title="View" />
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent>
+        <MudText Class="pa-4">No invoices found.</MudText>
+    </NoRecordsContent>
+</MudTable>
+
+@if (_showCreate)
+{
+    <CreateInvoiceModal OnClose="@(() => _showCreate = false)" OnCreated="OnInvoiceCreated" />
+}
+
+@code {
+    private bool _loading;
+    private bool _showCreate;
+    private InvoiceStatus? _filterStatus;
+    private string _filterPatient = "";
+    private List<Invoice> _invoices = [];
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var query = db.Invoices
+            .AsNoTracking()
+            .Include(i => i.Patient)
+            .Include(i => i.LineItems)
+            .Include(i => i.Payments)
+            .AsQueryable();
+
+        if (_filterStatus.HasValue)
+            query = query.Where(i => i.Status == _filterStatus.Value);
+
+        if (!string.IsNullOrWhiteSpace(_filterPatient))
+            query = query.Where(i => i.Patient.FirstName.Contains(_filterPatient) || i.Patient.LastName.Contains(_filterPatient));
+
+        _invoices = await query.OrderByDescending(i => i.IssuedAt).Take(200).ToListAsync();
+        _loading = false;
+    }
+
+    private async Task OnInvoiceCreated()
+    {
+        _showCreate = false;
+        Snackbar.Add("Invoice created", Severity.Success);
+        await LoadAsync();
+    }
+
+    private static Color StatusColor(InvoiceStatus status) => status switch
+    {
+        InvoiceStatus.Draft => Color.Default,
+        InvoiceStatus.Sent => Color.Info,
+        InvoiceStatus.Paid => Color.Success,
+        InvoiceStatus.PartiallyPaid => Color.Warning,
+        InvoiceStatus.Overdue => Color.Error,
+        InvoiceStatus.Void => Color.Dark,
+        _ => Color.Default
+    };
+}

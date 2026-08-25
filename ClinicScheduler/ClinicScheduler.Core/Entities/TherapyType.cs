@@ -16,6 +16,11 @@ public partial class TherapyType
     /// </summary>
     public string? ColorCode { get; private set; }
 
+    /// <summary>
+    /// Default billing rate for this therapy type. Used for auto-generating invoice line items.
+    /// </summary>
+    public decimal? DefaultRate { get; private set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
@@ -29,22 +34,24 @@ public partial class TherapyType
         Name = string.Empty;
     }
 
-    public TherapyType(string name, string? description, string? specialty, string? colorCode)
+    public TherapyType(string name, string? description, string? specialty, string? colorCode, decimal? defaultRate = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         Name = name;
         Description = description;
         Specialty = specialty;
         SetColorCode(colorCode);
+        DefaultRate = defaultRate;
     }
 
-    public void UpdateDetails(string name, string? description, string? specialty, string? colorCode)
+    public void UpdateDetails(string name, string? description, string? specialty, string? colorCode, decimal? defaultRate = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         Name = name;
         Description = description;
         Specialty = specialty;
         SetColorCode(colorCode);
+        DefaultRate = defaultRate;
         UpdatedAt = DateTime.UtcNow;
     }
 

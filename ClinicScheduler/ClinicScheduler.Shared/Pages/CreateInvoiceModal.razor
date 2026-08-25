@@ -1,0 +1,64 @@
+@inject IDbContextFactory<ClinicDbContext> DbFactory
+@inject IBillingService BillingService
+@inject ISnackbar Snackbar
+
+<MudDialog @bind-Visible="_visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
+    <TitleContent>
+        <MudText Typo="Typo.h6">Create Invoice</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudSelect T="int" @bind-Value="_patientId" Label="Patient" Variant="Variant.Outlined" Required="true">
+            @foreach (var p in _patients)
+            {
+                <MudSelectItem Value="@p.Id">@p.FullName (@p.Email)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudDatePicker @bind-Date="_dueDate" Label="Due Date" Variant="Variant.Outlined" Class="mt-3"
+                       Editable="true" DateFormat="MM/dd/yyyy" />
+        <MudTextField @bind-Value="_notes" Label="Notes" Variant="Variant.Outlined" Lines="2" Class="mt-3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync"
+                   Disabled="_patientId == 0">Create</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnCreated { get; set; }
+
+    private bool _visible = true;
+    private int _patientId;
+    private DateTime? _dueDate = DateTime.Today.AddDays(30);
+    private string _notes = "";
+    private List<Patient> _patients = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _patients = await db.Patients.AsNoTracking().OrderBy(p => p.LastName).ToListAsync();
+    }
+
+    private async Task CreateAsync()
+    {
+        if (_patientId == 0) return;
+
+        try
+        {
+            var dueDate = _dueDate?.ToUniversalTime() ?? DateTime.UtcNow.AddDays(30);
+            await BillingService.CreateInvoiceAsync(_patientId, dueDate);
+            await OnCreated.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task Close()
+    {
+        _visible = false;
+        await OnClose.InvokeAsync();
+    }
+}

@@ -92,6 +92,11 @@ public class WebAppFixture : IAsyncLifetime
         var db = scope.ServiceProvider.GetRequiredService<ClinicDbContext>();
         await db.Database.ExecuteSqlRawAsync(@"
             TRUNCATE TABLE
+                ""Superbills"",
+                ""Payments"",
+                ""InvoiceLineItems"",
+                ""Invoices"",
+                ""InsurancePolicies"",
                 ""ScheduleConflicts"",
                 ""Appointments"",
                 ""TreatmentPlanTherapies"",

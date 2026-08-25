@@ -14,6 +14,8 @@ public static class WorkflowServiceCollectionExtensions
         services.AddSingleton<IWorkflowPack, TreatmentPlanWorkflowPack>();
         services.AddSingleton<IWorkflowPack, TriageWorkflowPack>();
         services.AddSingleton<IWorkflowPack, IntakeWorkflowPack>();
+        services.AddSingleton<IWorkflowPack, BookingWorkflowPack>();
+        services.AddSingleton<IWorkflowPack, BillingWorkflowPack>();
 
         return services;
     }

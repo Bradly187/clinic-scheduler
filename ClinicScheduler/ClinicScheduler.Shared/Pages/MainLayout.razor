@@ -8,6 +8,7 @@
 
         <AuthorizeView>
             <NotAuthorized>
+                <NavLink href="/book" class="nav-item">Book Online</NavLink>
                 <NavLink href="/login" class="nav-item">Login</NavLink>
             </NotAuthorized>
             <Authorized>
@@ -30,6 +31,7 @@
                         <NavLink href="/dashboard/staff?tab=calendar" class="nav-item">Dashboard</NavLink>
                         <NavLink href="/dashboard/staff?tab=doctors" class="nav-item">Doctors</NavLink>
                         <NavLink href="/dashboard/staff?tab=patients" class="nav-item">Patients</NavLink>
+                        <NavLink href="/invoices" class="nav-item">Invoices</NavLink>
                     </Authorized>
                 </AuthorizeView>
             </Authorized>
@@ -41,5 +43,10 @@
     <main class="main-content">
         @Body
     </main>
+
+    <footer style="text-align: center; padding: 12px; font-size: 0.8rem; color: #6b7280; border-top: 1px solid #e5e7eb;">
+        <a href="/privacy" style="color: #6b7280; text-decoration: none; margin: 0 8px;">Privacy Policy</a> |
+        <a href="/terms" style="color: #6b7280; text-decoration: none; margin: 0 8px;">Terms of Service</a>
+    </footer>
 </div>
 </CascadingAuthenticationState>

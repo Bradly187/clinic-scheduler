@@ -1,0 +1,214 @@
+@page "/invoices/{Id:int}"
+@attribute [Authorize(Roles = "Admin,ClinicManager,Staff")]
+@inject IDbContextFactory<ClinicDbContext> DbFactory
+@inject IBillingService BillingService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>Invoice Detail</PageTitle>
+
+@if (_invoice is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <div class="d-flex align-center justify-space-between mb-4">
+        <div>
+            <MudText Typo="Typo.h5">@_invoice.InvoiceNumber</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">@_invoice.Patient?.FullName</MudText>
+        </div>
+        <div class="d-flex gap-2">
+            @if (_invoice.Status == InvoiceStatus.Draft)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SendAsync"
+                           Disabled="_invoice.Total <= 0">Send</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="VoidAsync">Void</MudButton>
+            }
+            @if (_invoice.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Success"
+                           OnClick="@(() => _showPayment = true)">Record Payment</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="VoidAsync">Void</MudButton>
+            }
+            <MudButton Variant="Variant.Text" OnClick="@(() => Nav.NavigateTo("/invoices"))">Back</MudButton>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <MudGrid Class="mb-4">
+        <MudItem xs="6" sm="3">
+            <MudPaper Elevation="2" Class="pa-4 rounded-lg text-center">
+                <MudText Typo="Typo.h5" Color="Color.Primary">@_invoice.Total.ToString("C")</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">Total</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="6" sm="3">
+            <MudPaper Elevation="2" Class="pa-4 rounded-lg text-center">
+                <MudText Typo="Typo.h5" Color="Color.Success">@_invoice.PaidAmount.ToString("C")</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">Paid</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="6" sm="3">
+            <MudPaper Elevation="2" Class="pa-4 rounded-lg text-center">
+                <MudText Typo="Typo.h5" Color="@(_invoice.Balance > 0 ? Color.Warning : Color.Success)">@_invoice.Balance.ToString("C")</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">Balance</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="6" sm="3">
+            <MudPaper Elevation="2" Class="pa-4 rounded-lg text-center">
+                <MudChip T="string" Color="@StatusColor(_invoice.Status)">@_invoice.Status</MudChip>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">Status</MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <!-- Line Items -->
+    <MudPaper Elevation="1" Class="mb-4">
+        <div class="pa-4 pb-2 d-flex align-center justify-space-between">
+            <MudText Typo="Typo.h6">Line Items</MudText>
+            @if (_invoice.Status == InvoiceStatus.Draft)
+            {
+                <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
+                           OnClick="@(() => _showAddItem = true)">Add Item</MudButton>
+            }
+        </div>
+        <MudTable Items="_invoice.LineItems" Hover="true" Dense="true">
+            <HeaderContent>
+                <MudTh>Description</MudTh>
+                <MudTh>Code</MudTh>
+                <MudTh>Qty</MudTh>
+                <MudTh>Unit Price</MudTh>
+                <MudTh>Amount</MudTh>
+            </HeaderContent>
+            <RowTemplate Context="item">
+                <MudTd>@item.Description</MudTd>
+                <MudTd>@(item.BillingCode ?? "—")</MudTd>
+                <MudTd>@item.Quantity</MudTd>
+                <MudTd>@item.UnitPrice.ToString("C")</MudTd>
+                <MudTd>@item.Amount.ToString("C")</MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Class="pa-4">No line items yet.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+    </MudPaper>
+
+    <!-- Payment History -->
+    <MudPaper Elevation="1">
+        <div class="pa-4 pb-2">
+            <MudText Typo="Typo.h6">Payment History</MudText>
+        </div>
+        <MudTable Items="_invoice.Payments" Hover="true" Dense="true">
+            <HeaderContent>
+                <MudTh>Date</MudTh>
+                <MudTh>Method</MudTh>
+                <MudTh>Amount</MudTh>
+                <MudTh>Status</MudTh>
+            </HeaderContent>
+            <RowTemplate Context="pmt">
+                <MudTd>@(pmt.PaidAt?.ToLocalTime().ToString("MMM d, yyyy h:mm tt") ?? pmt.CreatedAt.ToLocalTime().ToString("MMM d, yyyy h:mm tt"))</MudTd>
+                <MudTd>@pmt.Method</MudTd>
+                <MudTd>@pmt.Amount.ToString("C")</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="@PaymentStatusColor(pmt.Status)">@pmt.Status</MudChip>
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Class="pa-4">No payments recorded.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+    </MudPaper>
+}
+
+@if (_showAddItem)
+{
+    <AddLineItemModal InvoiceId="Id" OnClose="@(() => _showAddItem = false)" OnAdded="OnItemAdded" />
+}
+
+@if (_showPayment)
+{
+    <RecordPaymentModal InvoiceId="Id" MaxAmount="_invoice?.Balance ?? 0" OnClose="@(() => _showPayment = false)" OnRecorded="OnPaymentRecorded" />
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Invoice? _invoice;
+    private bool _showAddItem;
+    private bool _showPayment;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _invoice = await db.Invoices
+            .Include(i => i.Patient)
+            .Include(i => i.LineItems).ThenInclude(li => li.TherapyType)
+            .Include(i => i.Payments)
+            .FirstOrDefaultAsync(i => i.Id == Id);
+    }
+
+    private async Task SendAsync()
+    {
+        try
+        {
+            await BillingService.SendInvoiceAsync(Id);
+            Snackbar.Add("Invoice sent", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task VoidAsync()
+    {
+        try
+        {
+            await BillingService.VoidInvoiceAsync(Id);
+            Snackbar.Add("Invoice voided", Severity.Warning);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task OnItemAdded()
+    {
+        _showAddItem = false;
+        Snackbar.Add("Line item added", Severity.Success);
+        await LoadAsync();
+    }
+
+    private async Task OnPaymentRecorded()
+    {
+        _showPayment = false;
+        Snackbar.Add("Payment recorded", Severity.Success);
+        await LoadAsync();
+    }
+
+    private static Color StatusColor(InvoiceStatus s) => s switch
+    {
+        InvoiceStatus.Draft => Color.Default,
+        InvoiceStatus.Sent => Color.Info,
+        InvoiceStatus.Paid => Color.Success,
+        InvoiceStatus.PartiallyPaid => Color.Warning,
+        InvoiceStatus.Overdue => Color.Error,
+        InvoiceStatus.Void => Color.Dark,
+        _ => Color.Default
+    };
+
+    private static Color PaymentStatusColor(PaymentStatus s) => s switch
+    {
+        PaymentStatus.Completed => Color.Success,
+        PaymentStatus.Pending => Color.Warning,
+        PaymentStatus.Failed => Color.Error,
+        PaymentStatus.Refunded => Color.Info,
+        _ => Color.Default
+    };
+}
