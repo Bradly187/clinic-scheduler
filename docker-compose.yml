@@ -44,6 +44,13 @@ services:
       SeedAdmin__Password: ${SEED_ADMIN_PASSWORD:-Admin@1986}
       Gemini__ApiKey: ${GEMINI_API_KEY}
       Gemini__Model: "gemini-2.5-flash"
+      Agent__Provider: ${AGENT_PROVIDER:-Gemini}
+      Agent__Model: ${AGENT_MODEL:-gemini-2.5-flash}
+      Agent__Region: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
       OTEL_SERVICE_NAME: "ClinicScheduler.Web"
       OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=development"

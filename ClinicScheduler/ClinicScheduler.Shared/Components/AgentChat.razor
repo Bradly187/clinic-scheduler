@@ -22,9 +22,32 @@
             var isUser = role == "user";
 
             <div style="align-self: @(isUser ? "flex-end" : "flex-start"); max-width: 80%;">
-                <MudPaper Class="pa-3" Style="@(isUser ? "background-color: var(--mud-palette-primary); color: white;" : "background-color: var(--mud-palette-background-grey);")">
-                    @text
-                </MudPaper>
+                @if (!isUser && text.Contains("[SLOTS]"))
+                {
+                    @* Render slot buttons for appointment time selection *@
+                    var parts = text.Split("[SLOTS]", 2);
+                    <MudPaper Class="pa-3" Style="background-color: var(--mud-palette-background-grey);">
+                        @if (!string.IsNullOrWhiteSpace(parts[0]))
+                        {
+                            <span>@parts[0].Trim()</span>
+                        }
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">
+                            @foreach (var slot in ParseSlots(parts.Length > 1 ? parts[1] : ""))
+                            {
+                                var slotText = slot;
+                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                           Style="min-width: 90px;"
+                                           OnClick="@(() => SelectSlot(slotText))">@slotText</MudButton>
+                            }
+                        </div>
+                    </MudPaper>
+                }
+                else
+                {
+                    <MudPaper Class="pa-3" Style="@(isUser ? "background-color: var(--mud-palette-primary); color: white;" : "background-color: var(--mud-palette-background-grey);")" >
+                        @text
+                    </MudPaper>
+                }
             </div>
         }
         @if (_isProcessing)
@@ -117,6 +140,22 @@
             return string.Join("\n", textParts);
         }
         return content?.GetValue<string>() ?? "";
+    }
+
+    private List<string> ParseSlots(string slotsText)
+    {
+        return slotsText
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim().TrimStart('•', '-', '*', ' '))
+            .Select(s => System.Text.RegularExpressions.Regex.Replace(s, @"^\d+\.\s*", ""))
+            .Where(s => !string.IsNullOrWhiteSpace(s) && s.Length < 30)
+            .ToList();
+    }
+
+    private async Task SelectSlot(string slot)
+    {
+        _inputText = $"I'd like the {slot} slot";
+        await SendMessage();
     }
 
     private class AgentChatResponse

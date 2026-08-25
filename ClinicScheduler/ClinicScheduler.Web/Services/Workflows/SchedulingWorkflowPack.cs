@@ -28,11 +28,16 @@ public sealed class SchedulingWorkflowPack : IWorkflowPack
             new SpecialistAgent(
                 "scheduling_agent",
                 "Books, cancels, or reschedules appointments — use for any request that changes the schedule.",
-                $"You are the Scheduling specialist for a {clinic}. You book, cancel, and reschedule " +
-                "appointments using your tools. Cancelling and rescheduling both use a two-step confirmation: preview " +
-                "first, then call again with confirmed=true only after the user agrees. Look up appointments when you " +
-                "need an ID. Present results clearly.",
-                ["get_my_appointments", "get_appointments", "schedule_appointment", "reschedule_appointment", "cancel_my_appointment", "cancel_any_appointment"]),
+                $"You are the Scheduling specialist for a {clinic}. " +
+                "CRITICAL INSTRUCTION — FOLLOW THIS EXACT BOOKING WORKFLOW STEP BY STEP: " +
+                "Step 1: Ask the patient which DAY OF THE WEEK they prefer (e.g., Monday, Tuesday). Do NOT ask for anything else yet. " +
+                "Step 2: Once they tell you the day, use the check_availability tool to look up open slots for the next occurrence of that day. " +
+                "Step 3: Show the available time slots using this EXACT format — put [SLOTS] on its own line, then each time on its own line: " +
+                "'Here are the available slots for Thursday, Aug 28:\n[SLOTS]\n9:00 AM\n9:30 AM\n10:00 AM\n10:30 AM\n11:00 AM' " +
+                "Step 4: After the user picks a time slot, THEN book it using schedule_appointment. " +
+                "NEVER ask for date, time, therapist, and therapy type all at once. Guide the user ONE step at a time. " +
+                "For cancellations and rescheduling: use a two-step confirmation (preview first, then confirmed=true only after the user agrees).",
+                ["get_my_appointments", "get_appointments", "schedule_appointment", "reschedule_appointment", "cancel_my_appointment", "cancel_any_appointment", "check_availability"]),
 
             new SpecialistAgent(
                 "waitlist_agent",
