@@ -11,6 +11,11 @@ ClinicScheduler uses role-based access control. Each user is assigned one role:
 | **Staff** | Manage patients, appointments, treatment plans, cancel requests |
 | **Therapist** | View appointments, patients, treatment plans; manage own schedule |
 | **Patient** | View own appointments and submit cancellation requests |
+| **Auditor** | Read-only access to the immutable audit-log trail (`/api/audit-logs`) |
+
+> **AI assistant:** Most of the tasks below can also be done in natural language through the
+> in-app chat (the **AgentChat** panel), which routes requests to specialist agents and enforces
+> the same role-based rules in C#. See the [README](../README.md#-multi-agent-orchestration).
 
 ## User Management
 

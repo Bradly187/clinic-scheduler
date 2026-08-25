@@ -1,0 +1,343 @@
+@page "/book"
+@attribute [AllowAnonymous]
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Book an Appointment</PageTitle>
+
+<div class="book-page">
+    <div class="book-header">
+        <h1>Book an Appointment</h1>
+        <p class="book-subtitle">Chat with our scheduling assistant to find and book a time that works for you.</p>
+    </div>
+
+    <div class="book-chat-container">
+        <!-- Chat messages -->
+        <div class="book-messages" @ref="_messagesContainer">
+            @if (_messages.Count == 0)
+            {
+                <div class="book-welcome">
+                    <p>Hi there! I can help you:</p>
+                    <ul>
+                        <li>Find available appointment times</li>
+                        <li>Learn about our therapists and services</li>
+                        <li>Book your appointment</li>
+                    </ul>
+                    <p>What can I help you with today?</p>
+                </div>
+            }
+
+            @foreach (var msg in _messages)
+            {
+                <div class="book-msg @(msg.IsUser ? "book-msg-user" : "book-msg-assistant")">
+                    <div class="book-msg-bubble">@msg.Text</div>
+                </div>
+            }
+
+            @if (_isLoading)
+            {
+                <div class="book-msg book-msg-assistant">
+                    <div class="book-msg-bubble book-typing">Thinking...</div>
+                </div>
+            }
+        </div>
+
+        <!-- Suggested prompts (shown when no messages yet) -->
+        @if (_messages.Count == 0)
+        {
+            <div class="book-prompts">
+                <button class="book-prompt-chip" @onclick="@(() => SendSuggestion("What therapists are available?"))">
+                    What therapists are available?
+                </button>
+                <button class="book-prompt-chip" @onclick="@(() => SendSuggestion("I need to book a physical therapy appointment"))">
+                    Book a PT appointment
+                </button>
+                <button class="book-prompt-chip" @onclick="@(() => SendSuggestion("What services do you offer?"))">
+                    What services do you offer?
+                </button>
+                <button class="book-prompt-chip" @onclick="@(() => SendSuggestion("Check availability for next week"))">
+                    Check next week's availability
+                </button>
+            </div>
+        }
+
+        <!-- Input area -->
+        <div class="book-input-area">
+            <textarea class="book-input" @bind="_userInput" @bind:event="oninput"
+                      @onkeydown="HandleKeyDown"
+                      placeholder="Type your message..."
+                      rows="2"
+                      disabled="@_isLoading"></textarea>
+            <button class="book-send-btn" @onclick="SendMessageAsync" disabled="@(_isLoading || string.IsNullOrWhiteSpace(_userInput))">
+                Send
+            </button>
+        </div>
+    </div>
+
+    <div class="book-footer">
+        <p>Already have an account? <a href="/login">Log in</a> for faster booking.</p>
+    </div>
+</div>
+
+<style>
+    .book-page {
+        max-width: 700px;
+        margin: 0 auto;
+        padding: 24px 16px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    .book-header {
+        text-align: center;
+        margin-bottom: 24px;
+    }
+
+    .book-header h1 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: #111827;
+        margin: 0 0 8px 0;
+    }
+
+    .book-subtitle {
+        color: #6b7280;
+        font-size: 1rem;
+        margin: 0;
+    }
+
+    .book-chat-container {
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        overflow: hidden;
+        background: #fafafa;
+        display: flex;
+        flex-direction: column;
+        min-height: 450px;
+        max-height: 600px;
+    }
+
+    .book-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .book-welcome {
+        background: #f0f9ff;
+        border-radius: 12px;
+        padding: 16px 20px;
+        color: #1e40af;
+        font-size: 0.95rem;
+        line-height: 1.5;
+    }
+
+    .book-welcome ul {
+        margin: 8px 0;
+        padding-left: 20px;
+    }
+
+    .book-msg {
+        display: flex;
+    }
+
+    .book-msg-user {
+        justify-content: flex-end;
+    }
+
+    .book-msg-assistant {
+        justify-content: flex-start;
+    }
+
+    .book-msg-bubble {
+        max-width: 80%;
+        padding: 10px 16px;
+        border-radius: 16px;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .book-msg-user .book-msg-bubble {
+        background: #2563eb;
+        color: white;
+        border-bottom-right-radius: 4px;
+    }
+
+    .book-msg-assistant .book-msg-bubble {
+        background: white;
+        color: #1f2937;
+        border: 1px solid #e5e7eb;
+        border-bottom-left-radius: 4px;
+    }
+
+    .book-typing {
+        color: #9ca3af;
+        font-style: italic;
+    }
+
+    .book-prompts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 20px 16px;
+    }
+
+    .book-prompt-chip {
+        padding: 8px 16px;
+        border-radius: 20px;
+        border: 1px solid #d1d5db;
+        background: white;
+        color: #374151;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+
+    .book-prompt-chip:hover {
+        background: #eff6ff;
+        border-color: #93c5fd;
+        color: #1d4ed8;
+    }
+
+    .book-input-area {
+        display: flex;
+        gap: 8px;
+        padding: 12px 16px;
+        background: white;
+        border-top: 1px solid #e5e7eb;
+        align-items: flex-end;
+    }
+
+    .book-input {
+        flex: 1;
+        border: 1px solid #d1d5db;
+        border-radius: 12px;
+        padding: 10px 14px;
+        font-size: 1rem;
+        resize: none;
+        outline: none;
+        font-family: inherit;
+        min-height: 44px;
+    }
+
+    .book-input:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+    }
+
+    .book-send-btn {
+        padding: 10px 20px;
+        background: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 12px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        cursor: pointer;
+        min-height: 44px;
+        min-width: 70px;
+        transition: background 0.15s;
+    }
+
+    .book-send-btn:hover:not(:disabled) {
+        background: #1d4ed8;
+    }
+
+    .book-send-btn:disabled {
+        background: #9ca3af;
+        cursor: not-allowed;
+    }
+
+    .book-footer {
+        text-align: center;
+        margin-top: 16px;
+        color: #6b7280;
+        font-size: 0.875rem;
+    }
+
+    .book-footer a {
+        color: #2563eb;
+        text-decoration: none;
+    }
+</style>
+
+@code {
+    private string _userInput = "";
+    private bool _isLoading;
+    private ElementReference _messagesContainer;
+    private List<ChatMessage> _messages = [];
+    private System.Text.Json.Nodes.JsonArray _chatHistory = [];
+
+    private record ChatMessage(string Text, bool IsUser);
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessageAsync();
+        }
+    }
+
+    private async Task SendSuggestion(string text)
+    {
+        _userInput = text;
+        await SendMessageAsync();
+    }
+
+    private async Task SendMessageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_userInput) || _isLoading) return;
+
+        var userText = _userInput.Trim();
+        _userInput = "";
+        _messages.Add(new ChatMessage(userText, true));
+        _isLoading = true;
+        StateHasChanged();
+
+        // Add to chat history
+        _chatHistory.Add(new System.Text.Json.Nodes.JsonObject
+        {
+            ["role"] = "user",
+            ["content"] = userText
+        });
+
+        try
+        {
+            var response = await Http.PostAsJsonAsync("/api/booking/chat", _chatHistory);
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ChatResponse>();
+                var assistantText = result?.Response ?? "Sorry, I couldn't process that. Please try again.";
+
+                _messages.Add(new ChatMessage(assistantText, false));
+                _chatHistory.Add(new System.Text.Json.Nodes.JsonObject
+                {
+                    ["role"] = "assistant",
+                    ["content"] = assistantText
+                });
+            }
+            else
+            {
+                _messages.Add(new ChatMessage("I'm having trouble connecting. Please try again in a moment.", false));
+            }
+        }
+        catch
+        {
+            _messages.Add(new ChatMessage("Something went wrong. Please try again.", false));
+        }
+
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private sealed class ChatResponse
+    {
+        public string Response { get; set; } = "";
+    }
+}

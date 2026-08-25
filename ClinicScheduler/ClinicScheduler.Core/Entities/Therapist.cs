@@ -12,6 +12,9 @@ public partial class Therapist
     public string? Specialty { get; set; }
     public string? NpiNumber { get; private set; }
 
+    /// <summary>Remote ID of this therapist (FHIR Practitioner) in the external EHR/FHIR system.</summary>
+    public string? FhirId { get; private set; }
+
     public string FullName => $"{FirstName} {LastName}";
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -77,6 +80,13 @@ public partial class Therapist
                 $"Slot duration must be between {Location.MinSlotDurationMinutes} and {Location.MaxSlotDurationMinutes} minutes.");
         }
         SlotDurationMinutes = minutes;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Records the remote FHIR Practitioner id after an external sync.</summary>
+    public void SetFhirId(string? fhirId)
+    {
+        FhirId = fhirId;
         UpdatedAt = DateTime.UtcNow;
     }
 

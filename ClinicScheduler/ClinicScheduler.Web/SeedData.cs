@@ -19,28 +19,47 @@ public static class DatabaseSeeder
             if (!await roleManager.RoleExistsAsync(role))
                 await roleManager.CreateAsync(new IdentityRole(role));
 
+        // Tenant root: every seeded user belongs to the default clinic — the same clinic the
+        // AddClinicTenant migration seeds and backfills onto. Ensure it exists here too so seeding
+        // is self-sufficient on a fresh database. Without a clinic a user carries no tenant claim,
+        // which the stage-2 query filters will treat as "sees nothing". Domain data (patients,
+        // therapists, …) becomes tenant-scoped in stage 2 of the multi-tenancy rollout.
+        var defaultClinic = db.Clinics.FirstOrDefault(c => c.Slug == "default");
+        if (defaultClinic is null)
+        {
+            defaultClinic = new Clinic("Default Clinic", "default");
+            db.Clinics.Add(defaultClinic);
+            await db.SaveChangesAsync();
+        }
+
         // Admin account — always seeded (password comes from environment variable)
-        await EnsureUser(userManager, "admin@clinic.com", "Administrator", adminPassword, "Admin");
+        await EnsureUser(userManager, "admin@clinic.com", "Administrator", adminPassword, "Admin", defaultClinic.Id);
 
         // Demo accounts — development only
         if (isDevelopment)
         {
-            await EnsureUser(userManager, "manager@clinic.com",            "Clinic Manager",  "Manager@1234",   "ClinicManager");
-            await EnsureUser(userManager, "sarah.mitchell@clinic.com",     "Sarah Mitchell",  "Therapist@1234", "Therapist");
-            await EnsureUser(userManager, "james.okafor@clinic.com",       "James Okafor",    "Therapist@1234", "Therapist");
-            await EnsureUser(userManager, "linda.nguyen@clinic.com",       "Linda Nguyen",    "Therapist@1234", "Therapist");
-            await EnsureUser(userManager, "staff@clinic.com",              "Staff Member",    "Staff@Clinic1",  "Staff");
-            await EnsureUser(userManager, "patient@clinic.com",            "Demo Patient",    "Patient@1234",   "Patient");
-            await EnsureUser(userManager, "auditor@clinic.com",            "Compliance Auditor", "Auditor@1234", "Auditor");
+            await EnsureUser(userManager, "manager@clinic.com",            "Clinic Manager",  "Manager@1234",   "ClinicManager", defaultClinic.Id);
+            await EnsureUser(userManager, "sarah.mitchell@clinic.com",     "Sarah Mitchell",  "Therapist@1234", "Therapist", defaultClinic.Id);
+            await EnsureUser(userManager, "james.okafor@clinic.com",       "James Okafor",    "Therapist@1234", "Therapist", defaultClinic.Id);
+            await EnsureUser(userManager, "linda.nguyen@clinic.com",       "Linda Nguyen",    "Therapist@1234", "Therapist", defaultClinic.Id);
+            await EnsureUser(userManager, "staff@clinic.com",              "Staff Member",    "Staff@Clinic1",  "Staff", defaultClinic.Id);
+            await EnsureUser(userManager, "patient@clinic.com",            "Demo Patient",    "Patient@1234",   "Patient", defaultClinic.Id);
+            await EnsureUser(userManager, "auditor@clinic.com",            "Compliance Auditor", "Auditor@1234", "Auditor", defaultClinic.Id);
         }
 
-        static async Task EnsureUser(UserManager<AppUser> um, string email, string displayName, string password, string role)
+        static async Task EnsureUser(UserManager<AppUser> um, string email, string displayName, string password, string role, int clinicId)
         {
             var user = await um.FindByEmailAsync(email);
             if (user is null)
             {
-                user = new AppUser { UserName = email, Email = email, DisplayName = displayName, EmailConfirmed = true };
+                user = new AppUser { UserName = email, Email = email, DisplayName = displayName, EmailConfirmed = true, ClinicId = clinicId };
                 await um.CreateAsync(user, password);
+            }
+            else if (user.ClinicId is null)
+            {
+                // Backfill any pre-existing user that predates the tenant column.
+                user.ClinicId = clinicId;
+                await um.UpdateAsync(user);
             }
             if (!await um.IsInRoleAsync(user, role))
                 await um.AddToRoleAsync(user, role);

@@ -8,6 +8,8 @@ using ClinicScheduler.Web;
 using ClinicScheduler.Core.Services;
 using ClinicScheduler.Web.Components;
 using ClinicScheduler.Web.Services;
+using ClinicScheduler.Web.Services.Skills;
+using ClinicScheduler.Web.Services.Workflows;
 using ClinicScheduler.Shared.Services;
 using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Core.Configuration;
@@ -106,8 +108,13 @@ try
     builder.Services.AddScoped<WaitlistService>();
     builder.Services.AddScoped<WaitlistFulfillmentNotifier>();
     builder.Services.AddScoped<AppointmentNotificationService>();
+    builder.Services.AddScoped<IBillingService, BillingService>();
     builder.Services.AddSingleton<ClinicScheduler.Web.Services.Skills.ISkillRegistry, ClinicScheduler.Web.Services.Skills.SkillRegistry>();
-    builder.Services.AddScoped<ClinicScheduler.Web.Services.Skills.ISkillExecutor, ClinicScheduler.Web.Services.Skills.SkillExecutor>();
+    // Each agent tool is a self-registering ISkill; the executor just dispatches to them.
+    builder.Services.AddClinicSkills();
+    // Each healthcare workflow is a self-registering IWorkflowPack; the orchestrator builds its
+    // specialist roster from all of them. Add a workflow = register a pack (no orchestrator edit).
+    builder.Services.AddClinicWorkflows();
     // AgentService is the shared LLM tool-loop primitive (typed HttpClient for Gemini).
     builder.Services.AddHttpClient<AgentService>();
     // The chat is served by the multi-agent orchestrator: a coordinator that routes each
@@ -158,6 +165,14 @@ try
     builder.Services.AddHttpClient("twilio");
     builder.Services.AddSingleton<ISmsSender, TwilioSmsSender>();
 
+    // Stripe payment processing (no-op until the Stripe section is configured)
+    builder.Services.Configure<StripeOptions>(builder.Configuration.GetSection(StripeOptions.SectionName));
+    builder.Services.AddScoped<IPaymentGateway, StripePaymentGateway>();
+
+    // Superbill / CMS-1500 generation
+    builder.Services.AddScoped<SuperbillService>();
+    builder.Services.AddSingleton<Cms1500Generator>();
+
     // FHIR Integration
     builder.Services.Configure<FhirSettings>(builder.Configuration.GetSection("FhirSettings"));
     builder.Services.AddScoped<IFhirSyncService, FhirSyncService>();
@@ -195,6 +210,10 @@ try
     })
     .AddEntityFrameworkStores<ClinicDbContext>()
     .AddDefaultTokenProviders();
+
+    // Stamp the tenant (clinic) claim onto the Identity cookie principal at sign-in, so
+    // cookie-authenticated requests carry the same tenant context the API JWT emits.
+    builder.Services.AddScoped<IUserClaimsPrincipalFactory<AppUser>, ClinicClaimsPrincipalFactory>();
 
     // Security:RequireHttps is enabled by the deployment when TLS terminates at the ALB
     // (set automatically by Terraform when an ACM certificate is configured)
@@ -493,6 +512,13 @@ try
         var response = await agentService.ProcessMessageAsync(chatHistory);
         return Results.Ok(new { response });
     }).DisableAntiforgery().RequireAuthorization();
+
+    // Public booking chat endpoint — rate-limited, anonymous access for patient self-booking
+    app.MapPost("/api/booking/chat", async (JsonArray chatHistory, ClinicScheduler.Shared.Services.IAgentService agentService) =>
+    {
+        var response = await agentService.ProcessMessageAsync(chatHistory);
+        return Results.Ok(new { response });
+    }).DisableAntiforgery().RequireRateLimiting("login");
 
     app.MapRazorComponents<App>()
         .AddInteractiveServerRenderMode()

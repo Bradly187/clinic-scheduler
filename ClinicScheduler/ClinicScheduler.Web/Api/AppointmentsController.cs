@@ -1,4 +1,5 @@
 using ClinicScheduler.Core.Entities;
+using ClinicScheduler.Core.Interfaces;
 using ClinicScheduler.Core.Services;
 using ClinicScheduler.Infrastructure.Data;
 using ClinicScheduler.Web.Contracts.Appointments;
@@ -20,6 +21,7 @@ public class AppointmentsController : ControllerBase
     private readonly AppointmentNotificationService _notificationService;
     private readonly WaitlistService _waitlistService;
     private readonly WaitlistFulfillmentNotifier _waitlistNotifier;
+    private readonly IBillingService _billingService;
 
     public AppointmentsController(
         ClinicDbContext dbContext,
@@ -27,7 +29,8 @@ public class AppointmentsController : ControllerBase
         MissedAppointmentService missedAppointmentService,
         AppointmentNotificationService notificationService,
         WaitlistService waitlistService,
-        WaitlistFulfillmentNotifier waitlistNotifier)
+        WaitlistFulfillmentNotifier waitlistNotifier,
+        IBillingService billingService)
     {
         _dbContext = dbContext;
         _schedulingService = schedulingService;
@@ -35,6 +38,7 @@ public class AppointmentsController : ControllerBase
         _notificationService = notificationService;
         _waitlistService = waitlistService;
         _waitlistNotifier = waitlistNotifier;
+        _billingService = billingService;
     }
 
     /// <summary>
@@ -206,6 +210,26 @@ public class AppointmentsController : ControllerBase
         // Send appropriate notification after successful save
         var timeChanged = originalStartTime != existing.StartTime;
         var cancelledNow = existing.Status == AppointmentStatus.Canceled && originalStatus != AppointmentStatus.Canceled;
+        var completedNow = existing.Status == AppointmentStatus.Completed && originalStatus != AppointmentStatus.Completed;
+
+        // Auto-generate draft invoice when appointment is completed
+        if (completedNow)
+        {
+            try
+            {
+                var loaded = await _dbContext.Appointments
+                    .Include(x => x.Patient)
+                    .Include(x => x.Therapist)
+                    .Include(x => x.TherapyType)
+                    .FirstAsync(x => x.Id == existing.Id, ct);
+
+                await _billingService.CreateInvoiceForAppointmentAsync(loaded, ct);
+            }
+            catch (Exception)
+            {
+                // Invoice generation is best-effort; must not fail the appointment update
+            }
+        }
 
         if (timeChanged)
         {

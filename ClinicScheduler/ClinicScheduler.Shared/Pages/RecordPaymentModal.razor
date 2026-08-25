@@ -1,0 +1,66 @@
+@inject IBillingService BillingService
+@inject ISnackbar Snackbar
+
+<MudDialog @bind-Visible="_visible" Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
+    <TitleContent>
+        <MudText Typo="Typo.h6">Record Payment</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudNumericField @bind-Value="_amount" Label="Amount ($)" Variant="Variant.Outlined"
+                         Min="0.01m" Max="MaxAmount" Format="F2" />
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+            Outstanding balance: @MaxAmount.ToString("C")
+        </MudText>
+        <MudSelect T="PaymentMethod" @bind-Value="_method" Label="Payment Method" Variant="Variant.Outlined">
+            <MudSelectItem Value="PaymentMethod.Card">Card</MudSelectItem>
+            <MudSelectItem Value="PaymentMethod.Cash">Cash</MudSelectItem>
+            <MudSelectItem Value="PaymentMethod.Insurance">Insurance</MudSelectItem>
+            <MudSelectItem Value="PaymentMethod.Other">Other</MudSelectItem>
+        </MudSelect>
+        <MudTextField @bind-Value="_notes" Label="Notes" Variant="Variant.Outlined" Lines="2" Class="mt-3"
+                      Placeholder="e.g. Check #1234, ERA reference" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="RecordAsync"
+                   Disabled="_amount <= 0">Record Payment</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public int InvoiceId { get; set; }
+    [Parameter] public decimal MaxAmount { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnRecorded { get; set; }
+
+    private bool _visible = true;
+    private decimal _amount;
+    private PaymentMethod _method = PaymentMethod.Card;
+    private string _notes = "";
+
+    protected override void OnInitialized()
+    {
+        _amount = MaxAmount;
+    }
+
+    private async Task RecordAsync()
+    {
+        if (_amount <= 0) return;
+
+        try
+        {
+            await BillingService.RecordPaymentAsync(InvoiceId, _amount, _method);
+            await OnRecorded.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task Close()
+    {
+        _visible = false;
+        await OnClose.InvokeAsync();
+    }
+}

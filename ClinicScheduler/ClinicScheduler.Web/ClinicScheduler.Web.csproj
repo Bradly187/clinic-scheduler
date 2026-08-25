@@ -5,7 +5,10 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UserSecretsId>3d76fbad-2b7e-45dc-a408-dd91c7bbd65c</UserSecretsId>
+        <!-- Keep the XML doc file (Swagger reads it for API controllers) but don't warn on
+             undocumented members — internal DI components (skills, packs) aren't a public API. -->
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
     <ItemGroup>
@@ -13,7 +16,7 @@
         <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
         <PackageReference Include="MailKit" Version="4.17.0" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.3" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -27,9 +30,11 @@
         <PackageReference Include="OpenTelemetry.Instrumentation.EntityFrameworkCore" Version="1.10.0-beta.1" />
         <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.16.0" />
         <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.10.0" />
+        <PackageReference Include="QuestPDF" Version="2024.10.2" />
         <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
         <PackageReference Include="Serilog.Enrichers.Environment" Version="3.0.1" />
         <PackageReference Include="Serilog.Enrichers.Thread" Version="4.0.0" />
+        <PackageReference Include="Stripe.net" Version="46.2.1" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.4" />
         <ProjectReference Include="..\ClinicScheduler.Core\ClinicScheduler.Core.csproj" />
         <ProjectReference Include="..\ClinicScheduler.Infrastructure\ClinicScheduler.Infrastructure.csproj" />

@@ -33,6 +33,7 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
         _dataProtectionProvider = dataProtectionProvider;
     }
 
+    public DbSet<Clinic> Clinics => Set<Clinic>();
     public DbSet<Patient> Patients => Set<Patient>();
     public DbSet<Therapist> Therapists => Set<Therapist>();
     public DbSet<Location> Locations => Set<Location>();
@@ -49,10 +50,30 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
     public DbSet<ScheduleConflict> ScheduleConflicts => Set<ScheduleConflict>();
     public DbSet<WaitlistEntry> WaitlistEntries => Set<WaitlistEntry>();
     public DbSet<TherapistShift> TherapistShifts => Set<TherapistShift>();
+    public DbSet<Encounter> Encounters => Set<Encounter>();
+    public DbSet<Invoice> Invoices => Set<Invoice>();
+    public DbSet<InvoiceLineItem> InvoiceLineItems => Set<InvoiceLineItem>();
+    public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<InsurancePolicy> InsurancePolicies => Set<InsurancePolicy>();
+    public DbSet<Superbill> Superbills => Set<Superbill>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // Tenant root. Each clinic owns all clinical/scheduling data beneath it; the per-entity
+        // ClinicId, query filters, and auto-stamping arrive in stage 2 (docs/multi-tenancy-design.md).
+        modelBuilder.Entity<Clinic>()
+            .HasIndex(c => c.Slug)
+            .IsUnique();
+
+        // The user's clinic is the server-side source of truth for tenant resolution. Restrict
+        // delete so a clinic with users cannot be removed out from under them.
+        modelBuilder.Entity<AppUser>()
+            .HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(u => u.ClinicId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<TreatmentPlanTherapy>()
             .HasKey(tpt => new { tpt.TreatmentPlanId, tpt.TherapyTypeId });
@@ -132,6 +153,135 @@ public class ClinicDbContext : IdentityDbContext<AppUser>
             .WithMany()
             .HasForeignKey(w => w.FulfilledAppointmentId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        // Encounter (intake/visit): patient is required; therapist/location optional and kept
+        // when the related row is deleted (only the patient cascade removes the encounter).
+        modelBuilder.Entity<Encounter>()
+            .HasOne(e => e.Patient)
+            .WithMany()
+            .HasForeignKey(e => e.PatientId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Encounter>()
+            .HasOne(e => e.Therapist)
+            .WithMany()
+            .HasForeignKey(e => e.TherapistId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<Encounter>()
+            .HasOne(e => e.Location)
+            .WithMany()
+            .HasForeignKey(e => e.LocationId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<Encounter>()
+            .HasIndex(e => e.PatientId)
+            .HasDatabaseName("IX_Encounters_PatientId");
+
+        // ──── Billing entities ────
+
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.Patient)
+            .WithMany()
+            .HasForeignKey(i => i.PatientId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.Appointment)
+            .WithMany()
+            .HasForeignKey(i => i.AppointmentId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.InvoiceNumber)
+            .IsUnique()
+            .HasDatabaseName("IX_Invoices_InvoiceNumber");
+
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.PatientId)
+            .HasDatabaseName("IX_Invoices_PatientId");
+
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.Status)
+            .HasDatabaseName("IX_Invoices_Status");
+
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.SubTotal).HasColumnType("decimal(10,2)");
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.TaxAmount).HasColumnType("decimal(10,2)");
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.Total).HasColumnType("decimal(10,2)");
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.PaidAmount).HasColumnType("decimal(10,2)");
+
+        modelBuilder.Entity<InvoiceLineItem>()
+            .HasOne(li => li.Invoice)
+            .WithMany(i => i.LineItems)
+            .HasForeignKey(li => li.InvoiceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<InvoiceLineItem>()
+            .HasOne(li => li.TherapyType)
+            .WithMany()
+            .HasForeignKey(li => li.TherapyTypeId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<InvoiceLineItem>()
+            .Property(li => li.UnitPrice).HasColumnType("decimal(10,2)");
+        modelBuilder.Entity<InvoiceLineItem>()
+            .Property(li => li.Amount).HasColumnType("decimal(10,2)");
+
+        modelBuilder.Entity<Payment>()
+            .HasOne(p => p.Invoice)
+            .WithMany(i => i.Payments)
+            .HasForeignKey(p => p.InvoiceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Payment>()
+            .Property(p => p.Amount).HasColumnType("decimal(10,2)");
+
+        modelBuilder.Entity<Payment>()
+            .HasIndex(p => p.InvoiceId)
+            .HasDatabaseName("IX_Payments_InvoiceId");
+
+        modelBuilder.Entity<Payment>()
+            .HasIndex(p => p.StripePaymentIntentId)
+            .HasFilter("\"StripePaymentIntentId\" IS NOT NULL")
+            .HasDatabaseName("IX_Payments_StripePaymentIntentId");
+
+        modelBuilder.Entity<InsurancePolicy>()
+            .HasOne(ip => ip.Patient)
+            .WithMany()
+            .HasForeignKey(ip => ip.PatientId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<InsurancePolicy>()
+            .HasIndex(ip => ip.PatientId)
+            .HasDatabaseName("IX_InsurancePolicies_PatientId");
+
+        modelBuilder.Entity<Superbill>()
+            .HasOne(s => s.Invoice)
+            .WithMany()
+            .HasForeignKey(s => s.InvoiceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Superbill>()
+            .HasOne(s => s.Patient)
+            .WithMany()
+            .HasForeignKey(s => s.PatientId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Superbill>()
+            .HasOne(s => s.Therapist)
+            .WithMany()
+            .HasForeignKey(s => s.TherapistId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<TherapyType>()
+            .Property(tt => tt.DefaultRate)
+            .HasColumnType("decimal(10,2)");
+
+        modelBuilder.Entity<Invoice>().Property<uint>("xmin").IsRowVersion();
 
         // Optimistic concurrency: PostgreSQL's xmin system column detects when two
         // users edit the same record; the second save throws DbUpdateConcurrencyException

@@ -25,6 +25,7 @@
             <button class="@GetTabClass("calendar")" @onclick="@(() => SetTab("calendar"))">Calendar</button>
             <button class="@GetTabClass("profile")" @onclick="@(() => SetTab("profile"))">Profile</button>
             <button class="@GetTabClass("notes")" @onclick="@(() => SetTab("notes"))">Notes</button>
+            <button class="@GetTabClass("billing")" @onclick="@(() => SetTab("billing"))">My Invoices</button>
         </div>
 
         <div class="role-body">
@@ -116,6 +117,45 @@
                     }
                 </div>
             }
+            else if (activeTab == "billing")
+            {
+                <div class="panel">
+                    <h3>My Invoices</h3>
+                    @if (_patientInvoices.Count == 0)
+                    {
+                        <p class="muted">No invoices found.</p>
+                    }
+                    else
+                    {
+                        <div style="margin-bottom: 12px;">
+                            <strong>Outstanding Balance: @_patientInvoices.Where(i => i.Status != InvoiceStatus.Paid && i.Status != InvoiceStatus.Void && i.Status != InvoiceStatus.Draft).Sum(i => i.Balance).ToString("C")</strong>
+                        </div>
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid #e5e7eb; text-align: left;">
+                                    <th style="padding: 8px;">Invoice #</th>
+                                    <th style="padding: 8px;">Date</th>
+                                    <th style="padding: 8px;">Total</th>
+                                    <th style="padding: 8px;">Balance</th>
+                                    <th style="padding: 8px;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var inv in _patientInvoices.OrderByDescending(i => i.IssuedAt))
+                                {
+                                    <tr style="border-bottom: 1px solid #f3f4f6;">
+                                        <td style="padding: 8px;">@inv.InvoiceNumber</td>
+                                        <td style="padding: 8px;">@inv.IssuedAt.ToLocalTime().ToString("MMM d, yyyy")</td>
+                                        <td style="padding: 8px;">@inv.Total.ToString("C")</td>
+                                        <td style="padding: 8px;">@inv.Balance.ToString("C")</td>
+                                        <td style="padding: 8px;">@inv.Status</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            }
         </div>
     }
 </div>
@@ -126,6 +166,7 @@
     private Patient? _patient;
     private bool _patientNotFound;
     private List<Appointment> _appointmentNotes = new();
+    private List<Invoice> _patientInvoices = new();
     private string _notesDoctorFilter = "";
 
     private string _editPhone = "";
@@ -162,6 +203,13 @@
             .Include(a => a.Therapist)
             .Where(a => a.PatientId == _patient.Id && a.Notes != null)
             .OrderByDescending(a => a.StartTime)
+            .ToListAsync();
+
+        _patientInvoices = await DbContext.Invoices
+            .AsNoTracking()
+            .Where(i => i.PatientId == _patient.Id && i.Status != InvoiceStatus.Draft)
+            .Include(i => i.LineItems)
+            .OrderByDescending(i => i.IssuedAt)
             .ToListAsync();
     }
 

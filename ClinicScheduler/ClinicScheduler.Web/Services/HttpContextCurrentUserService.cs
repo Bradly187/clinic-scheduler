@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using ClinicScheduler.Core.Auth;
 using ClinicScheduler.Core.Interfaces;
 
 namespace ClinicScheduler.Web.Services;
@@ -18,6 +19,12 @@ public sealed class HttpContextCurrentUserService(IHttpContextAccessor httpConte
     /// <inheritdoc/>
     public string? UserName =>
         httpContextAccessor.HttpContext?.User.Identity?.Name;
+
+    /// <inheritdoc/>
+    public int? TenantId =>
+        int.TryParse(httpContextAccessor.HttpContext?.User.FindFirstValue(ClinicClaimTypes.ClinicId), out var id)
+            ? id
+            : null;
 
     /// <inheritdoc/>
     public ClaimsPrincipal? Principal =>

@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using ClinicScheduler.Web.Services;
 using ClinicScheduler.Web.Services.Skills;
+using ClinicScheduler.Web.Services.Workflows;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -46,7 +47,8 @@ public class OrchestratorAgentServiceTests
             .ReturnsAsync("Upcoming Appointments: 2 found");
 
         var agent = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object, NullLogger<AgentService>.Instance);
-        var orchestrator = new OrchestratorAgentService(agent, _mockExecutor.Object, _mockUserService.Object, NullLogger<OrchestratorAgentService>.Instance);
+
+        var orchestrator = BuildOrchestrator(agent);
 
         var chatHistory = new JsonArray
         {
@@ -76,6 +78,61 @@ public class OrchestratorAgentServiceTests
 
         // The specialist actually executed its skill.
         _mockExecutor.Verify(e => e.ExecuteAsync("get_my_appointments", It.IsAny<JsonObject?>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessMessageAsync_RoutesNewPatientRequest_ToIntakeAgent()
+    {
+        // The Intake pack was added with no orchestrator change; the coordinator can route to it.
+        var responses = new Queue<JsonObject>(new[]
+        {
+            ToolCall("route_to_intake_agent", "{\"task\":\"register a new patient\"}"),
+            Text("Let's get you registered. What is your date of birth?"),
+            Text("Let's get you registered. What is your date of birth?")
+        });
+        var handler = new MockHttpMessageHandler(responses);
+        var agent = new AgentService(new HttpClient(handler), _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object, NullLogger<AgentService>.Instance);
+        var orchestrator = BuildOrchestrator(agent);
+
+        var chatHistory = new JsonArray
+        {
+            new JsonObject { ["role"] = "user", ["content"] = "Hi, I'm a new patient and want to register." }
+        };
+
+        var result = await orchestrator.ProcessMessageAsync(chatHistory);
+
+        result.Should().Contain("registered");
+
+        // The coordinator is offered the intake route...
+        var coordinatorTools = handler.Requests[0]["tools"]!.AsArray()
+            .Select(t => t!["function"]!["name"]!.GetValue<string>()).ToList();
+        coordinatorTools.Should().Contain("route_to_intake_agent");
+
+        // ...and the intake specialist is offered its intake skills, not the routing tools.
+        var specialistTools = handler.Requests[1]["tools"]!.AsArray()
+            .Select(t => t!["function"]!["name"]!.GetValue<string>()).ToList();
+        specialistTools.Should().Contain("register_patient");
+        specialistTools.Should().Contain("verify_patient_demographics");
+        specialistTools.Should().Contain("start_encounter");
+        specialistTools.Should().NotContain("route_to_intake_agent");
+    }
+
+    private OrchestratorAgentService BuildOrchestrator(AgentService agent)
+    {
+        // Specialist tool schemas come from the orchestrator's SkillExecutor (a stub schema per name).
+        _mockExecutor.Setup(e => e.GetToolSchema(It.IsAny<string>()))
+            .Returns((string n) => new JsonObject { ["type"] = "function", ["function"] = new JsonObject { ["name"] = n } });
+
+        // The specialist roster comes from registered workflow packs (Clinic:Specialty unset -> default).
+        var clinicProfile = new ClinicProfile(_config);
+        var packs = new IWorkflowPack[]
+        {
+            new SchedulingWorkflowPack(clinicProfile),
+            new TreatmentPlanWorkflowPack(clinicProfile),
+            new TriageWorkflowPack(clinicProfile),
+            new IntakeWorkflowPack(clinicProfile),
+        };
+        return new OrchestratorAgentService(agent, _mockExecutor.Object, _mockUserService.Object, packs, clinicProfile, NullLogger<OrchestratorAgentService>.Instance);
     }
 
     private static JsonObject Text(string content) => new()

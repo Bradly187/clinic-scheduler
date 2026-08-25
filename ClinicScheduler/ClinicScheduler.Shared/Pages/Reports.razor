@@ -150,6 +150,61 @@
             </NoRecordsContent>
         </MudTable>
     </MudPaper>
+
+    <!-- Billing / Revenue -->
+    <MudPaper Elevation="1" Class="mt-4">
+        <div class="pa-4 pb-2 d-flex align-center justify-space-between">
+            <MudText Typo="Typo.h6">Revenue Summary</MudText>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Download"
+                       Href="@($"/api/reports/billing/export?from={_startDate:yyyy-MM-dd}&to={_endDate:yyyy-MM-dd}")"
+                       Target="_blank">
+                Export CSV
+            </MudButton>
+        </div>
+        <MudGrid Class="pa-4">
+            <MudItem xs="6" sm="3">
+                <MudPaper Elevation="0" Class="pa-3 rounded-lg text-center" Style="background: #f0fdf4;">
+                    <MudText Typo="Typo.h5" Color="Color.Success">@_totalBilled.ToString("C")</MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Total Billed</MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudPaper Elevation="0" Class="pa-3 rounded-lg text-center" Style="background: #eff6ff;">
+                    <MudText Typo="Typo.h5" Color="Color.Primary">@_totalCollected.ToString("C")</MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Collected</MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudPaper Elevation="0" Class="pa-3 rounded-lg text-center" Style="background: #fef3c7;">
+                    <MudText Typo="Typo.h5" Color="Color.Warning">@_outstandingBalance.ToString("C")</MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Outstanding</MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudPaper Elevation="0" Class="pa-3 rounded-lg text-center" Style="background: #fef2f2;">
+                    <MudText Typo="Typo.h5" Color="Color.Error">@_overdueCount</MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Overdue</MudText>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+
+        @if (_paymentMethodBreakdown.Count > 0)
+        {
+            <MudTable Items="_paymentMethodBreakdown" Hover="true" Dense="true" Class="mx-4 mb-4">
+                <HeaderContent>
+                    <MudTh>Payment Method</MudTh>
+                    <MudTh>Transactions</MudTh>
+                    <MudTh>Total</MudTh>
+                </HeaderContent>
+                <RowTemplate Context="pm">
+                    <MudTd>@pm.Method</MudTd>
+                    <MudTd>@pm.Count</MudTd>
+                    <MudTd>@pm.Total.ToString("C")</MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+    </MudPaper>
 }
 
 @code {
@@ -167,6 +222,13 @@
     private List<(AppointmentStatus Status, int Count)> _statusBreakdown = [];
     private List<(string Name, int Total, int Completed, int Missed)> _therapistBreakdown = [];
     private List<AuditLog> _auditLogs = [];
+
+    // Billing report fields
+    private decimal _totalBilled;
+    private decimal _totalCollected;
+    private decimal _outstandingBalance;
+    private int _overdueCount;
+    private List<(string Method, int Count, decimal Total)> _paymentMethodBreakdown = [];
 
     protected override void OnInitialized()
     {
@@ -237,6 +299,27 @@
             .OrderByDescending(l => l.Timestamp)
             .Take(500)
             .ToListAsync();
+
+        // Billing data
+        var invoices = await DbContext.Invoices
+            .Include(i => i.Payments)
+            .Where(i => i.IssuedAt >= from && i.IssuedAt < to)
+            .ToListAsync();
+
+        _totalBilled = invoices.Sum(i => i.Total);
+        _totalCollected = invoices.SelectMany(i => i.Payments)
+            .Where(p => p.Status == PaymentStatus.Completed)
+            .Sum(p => p.Amount);
+        _outstandingBalance = invoices
+            .Where(i => i.Status != InvoiceStatus.Void && i.Status != InvoiceStatus.Paid)
+            .Sum(i => i.Balance);
+        _overdueCount = invoices.Count(i => i.Status == InvoiceStatus.Overdue);
+        _paymentMethodBreakdown = invoices.SelectMany(i => i.Payments)
+            .Where(p => p.Status == PaymentStatus.Completed)
+            .GroupBy(p => p.Method)
+            .Select(g => (g.Key.ToString(), g.Count(), g.Sum(p => p.Amount)))
+            .OrderByDescending(x => x.Item3)
+            .ToList();
 
         _loading = false;
         _generated = true;

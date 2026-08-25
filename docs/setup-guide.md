@@ -102,11 +102,12 @@ EF Core migrations run automatically on startup in Development mode. If the data
 ### 5. Run Tests
 
 ```bash
-# Run all tests
-dotnet test
-
-# Run only Core tests
+# Run only Core tests (no Docker required)
 dotnet test ClinicScheduler.Core.Tests
+
+# Run all tests — Docker must be running; the Web suite spins up a
+# real PostgreSQL container via Testcontainers
+dotnet test
 ```
 
 ## Environment Variables
