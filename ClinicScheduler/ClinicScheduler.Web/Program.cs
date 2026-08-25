@@ -117,6 +117,21 @@ try
     builder.Services.AddClinicWorkflows();
     // AgentService is the shared LLM tool-loop primitive (typed HttpClient for Gemini).
     builder.Services.AddHttpClient<AgentService>();
+
+    // LLM Provider: configurable via Agent:Provider (Bedrock or Gemini)
+    var agentProvider = builder.Configuration["Agent:Provider"] ?? "Gemini";
+    if (agentProvider.Equals("Bedrock", StringComparison.OrdinalIgnoreCase))
+    {
+        builder.Services.AddSingleton<ILlmClient, BedrockLlmClient>();
+    }
+    else
+    {
+        builder.Services.AddSingleton<ILlmClient>(sp =>
+        {
+            var httpClient = new HttpClient();
+            return new GeminiLlmClient(httpClient, builder.Configuration, sp.GetRequiredService<ILogger<GeminiLlmClient>>());
+        });
+    }
     // The chat is served by the multi-agent orchestrator: a coordinator that routes each
     // request to a specialist sub-agent (Info / Scheduling / Triage), each running its own
     // tool loop via AgentService.RunLoopAsync.

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
@@ -20,42 +19,33 @@ public class AgentService : IAgentService
 
     private readonly HttpClient _httpClient;
     private readonly string _modelName;
-    private readonly string _endpoint;
+    private readonly ILlmClient _llmClient;
     private readonly ISkillRegistry _skillRegistry;
     private readonly ISkillExecutor _skillExecutor;
     private readonly ICurrentUserService _currentUserService;
     private readonly ILogger<AgentService> _logger;
 
     /// <summary>
-    /// Initializes the AgentService with required dependencies and configures
-    /// the Google Gemini endpoint and API key from application settings.
+    /// Initializes the AgentService with required dependencies. The LLM provider
+    /// is injected via <see cref="ILlmClient"/> — either Gemini or Bedrock.
     /// </summary>
     public AgentService(
         HttpClient httpClient,
         IConfiguration config,
+        ILlmClient llmClient,
         ISkillRegistry skillRegistry,
         ISkillExecutor skillExecutor,
         ICurrentUserService currentUserService,
         ILogger<AgentService> logger)
     {
         _httpClient = httpClient;
+        _llmClient = llmClient;
         _skillRegistry = skillRegistry;
         _skillExecutor = skillExecutor;
         _currentUserService = currentUserService;
         _logger = logger;
 
-        _modelName = config["Gemini:Model"];
-        if (string.IsNullOrWhiteSpace(_modelName)) _modelName = "gemini-2.5-flash";
-
-        _endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-
-        var apiKey = config["Gemini:ApiKey"];
-        if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
-
-        _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        _modelName = config["Agent:Model"] ?? config["Gemini:Model"] ?? "gemini-2.5-flash";
     }
 
     /// <summary>
@@ -240,22 +230,9 @@ public class AgentService : IAgentService
 
     private async Task<JsonObject?> SendRequestAsync(JsonObject requestBody, CancellationToken ct)
     {
-        using var activity = ActivitySource.StartActivity("SendRequestToGemini");
-        _logger.LogDebug("Sending request to Gemini API ({Model}).", _modelName);
-
-        var content = new StringContent(requestBody.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
-        var res = await _httpClient.PostAsync(_endpoint, content, ct);
-        if (!res.IsSuccessStatusCode)
-        {
-            var err = await res.Content.ReadAsStringAsync();
-            _logger.LogError("Gemini API Error: {StatusCode} - {Error}", res.StatusCode, err);
-            activity?.SetStatus(ActivityStatusCode.Error, err);
-            throw new Exception($"Gemini API Error: {res.StatusCode} - {err}");
-        }
-
-        var resString = await res.Content.ReadAsStringAsync();
-        _logger.LogDebug("Received successful response from Gemini API.");
-        return JsonSerializer.Deserialize<JsonObject>(resString);
+        using var activity = ActivitySource.StartActivity("SendLlmRequest");
+        _logger.LogDebug("Sending request to LLM provider ({Model}).", _modelName);
+        return await _llmClient.SendChatCompletionAsync(requestBody, ct);
     }
 }
 
