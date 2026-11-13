@@ -76,7 +76,8 @@ public class OrchestratorIntegrationTests : IAsyncLifetime
         mockUserService.Setup(s => s.Principal).Returns(user);
 
         var agentService = new AgentService(
-            httpClient, config, mockRegistry.Object, executor,
+            httpClient, config, new GeminiLlmClient(httpClient, config, NullLogger<GeminiLlmClient>.Instance),
+            mockRegistry.Object, executor,
             mockUserService.Object, NullLogger<AgentService>.Instance);
 
         var clinicProfile = new ClinicProfile(config);
