@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="ClinicSchedulerV2.Data/ClinicSchedulerV2.Data.csproj" />
+  <Project Path="ClinicSchedulerV2.Tests/ClinicSchedulerV2.Tests.csproj" />
+  <Project Path="ClinicSchedulerV2.Web/ClinicSchedulerV2.Web.csproj" />
+</Solution>

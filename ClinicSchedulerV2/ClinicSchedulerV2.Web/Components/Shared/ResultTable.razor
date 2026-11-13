@@ -1,0 +1,52 @@
+@* Renders whatever columns and rows a query returned. *@
+@if (Result is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (Result.Rows.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="muted pa-4">@EmptyText</MudText>
+}
+else
+{
+    <div class="result-table-wrap">
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+            <thead>
+                <tr>
+                    @foreach (var column in Result.Columns)
+                    {
+                        <th>@Heading(column)</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in Result.Rows)
+                {
+                    <tr>
+                        @for (var i = 0; i < row.Length; i++)
+                        {
+                            var column = Result.Columns[i];
+                            <td class="@CellClass(column)">@row[i]</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+@code {
+    [Parameter] public QueryResult? Result { get; set; }
+    [Parameter] public string EmptyText { get; set; } = "No rows.";
+    /// <summary>Columns shown in a monospace face (names of database objects, definitions).</summary>
+    [Parameter] public string[] MonoColumns { get; set; } = [];
+    /// <summary>Columns allowed to wrap onto several lines.</summary>
+    [Parameter] public string[] WrapColumns { get; set; } = [];
+
+    // Report queries name their columns in snake_case; show them as words
+    private static string Heading(string column) =>
+        column.Length == 0 ? column : char.ToUpperInvariant(column[0]) + column[1..].Replace('_', ' ');
+
+    private string CellClass(string column) =>
+        (MonoColumns.Contains(column) ? "mono " : "") + (WrapColumns.Contains(column) ? "wrap" : "");
+}

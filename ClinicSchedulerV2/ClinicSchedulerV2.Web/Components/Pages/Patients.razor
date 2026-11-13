@@ -1,0 +1,170 @@
+@page "/patients"
+@inject ClinicDb Clinic
+@inject SchedulingService Scheduling
+@inject ISnackbar Snackbar
+
+<PageTitle>Patients · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Patients</MudText>
+        <MudText Typo="Typo.body2" Class="lead">@_patients.Count(p => p.IsActive) active of @_patients.Count</MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+               StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="@(() => Open(null))">Add patient</MudButton>
+</div>
+
+<div class="panel">
+    <div class="pa-3">
+        <MudTextField T="string" @bind-Value="_search" Placeholder="Search by name, phone or email" Immediate="true"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="max-width: 420px" />
+    </div>
+    <MudDivider />
+    <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+        <thead>
+            <tr><th>Name</th><th>Born</th><th>Phone</th><th>Email</th><th>Home location</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var p in Filtered)
+            {
+                <tr>
+                    <td>@p.LastName, @p.FirstName</td>
+                    <td class="time-cell" style="font-weight: 400">@p.DateOfBirth.ToString("MMM d, yyyy")</td>
+                    <td>@p.Phone</td>
+                    <td>@p.Email</td>
+                    <td>@p.HomeLocation.ShortName</td>
+                    <td><StatusChip Text="@(p.IsActive ? "Active" : "Inactive")" /></td>
+                    <td style="text-align: right">
+                        <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => Open(p))"
+                                       aria-label="@($"Edit {p.FullName}")" />
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+    @if (!Filtered.Any())
+    {
+        <MudText Typo="Typo.body2" Class="muted pa-4">No patients match "@_search".</MudText>
+    }
+</div>
+
+<MudDialog @bind-Visible="_open" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">@(_editingId is null ? "Add patient" : "Edit patient")</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_violation" />
+        <MudGrid Spacing="2">
+            <MudItem xs="6"><MudTextField T="string" @bind-Value="_form.FirstName" Label="First name" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="6"><MudTextField T="string" @bind-Value="_form.LastName" Label="Last name" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="6">
+                <MudDatePicker @bind-Date="_dateOfBirth" Label="Date of birth" DateFormat="MMM d, yyyy" Editable="true"
+                               OpenTo="OpenTo.Year" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6">
+                <IdSelect TItem="Location" Items="_locations" Label="Home location"
+                          IdOf="@(l => l.LocationId)" TextOf="@(l => l.ShortName)" @bind-Value="_homeLocationId" />
+            </MudItem>
+            <MudItem xs="6"><MudTextField T="string" @bind-Value="_form.Phone" Label="Phone" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="6"><MudTextField T="string" @bind-Value="_form.Email" Label="Email (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12"><MudTextField T="string" @bind-Value="_form.Street" Label="Street (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="6"><MudTextField T="string" @bind-Value="_form.City" Label="City" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="3"><MudTextField T="string" @bind-Value="_form.State" Label="State" MaxLength="2" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="3"><MudTextField T="string" @bind-Value="_form.Zip" Label="ZIP" MaxLength="5" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            @if (_editingId is not null)
+            {
+                <MudItem xs="12"><MudSwitch T="bool" @bind-Value="_form.IsActive" Color="Color.Primary" Label="Active patient" /></MudItem>
+            }
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _open = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" Disabled="@(!CanSave || _saving)" OnClick="Save">
+            @(_editingId is null ? "Add patient" : "Save changes")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+
+    private List<Patient> _patients = [];
+    private List<Location> _locations = [];
+    private string? _search;
+
+    private bool _open, _saving;
+    private int? _editingId, _homeLocationId;
+    private DateTime? _dateOfBirth;
+    private Patient _form = new();
+    private DbRuleViolation? _violation;
+
+    private IEnumerable<Patient> Filtered => string.IsNullOrWhiteSpace(_search)
+        ? _patients
+        : _patients.Where(p => $"{p.FullName} {p.LastName}, {p.FirstName} {p.Phone} {p.Email}"
+            .Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private bool CanSave => !string.IsNullOrWhiteSpace(_form.FirstName) && !string.IsNullOrWhiteSpace(_form.LastName)
+                            && !string.IsNullOrWhiteSpace(_form.Phone) && _dateOfBirth is not null && _homeLocationId is not null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using (var db = await Clinic.OpenAsync())
+            _locations = await db.Locations.OrderBy(l => l.LocationId).ToListAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await Clinic.OpenAsync();
+        _patients = await db.Patients.Include(p => p.HomeLocation)
+            .OrderBy(p => p.LastName).ThenBy(p => p.FirstName).ToListAsync();
+    }
+
+    private void Open(Patient? patient)
+    {
+        _violation = null;
+        _editingId = patient?.PatientId;
+        _form = patient is null
+            ? new Patient { City = "Houston", State = "TX" }
+            : new Patient
+            {
+                FirstName = patient.FirstName, LastName = patient.LastName, Phone = patient.Phone, Email = patient.Email,
+                Street = patient.Street, City = patient.City, State = patient.State, Zip = patient.Zip, IsActive = patient.IsActive,
+            };
+        _dateOfBirth = patient?.DateOfBirth.ToDateTime(TimeOnly.MinValue);
+        _homeLocationId = patient?.HomeLocationId;
+        _open = true;
+    }
+
+    private async Task Save()
+    {
+        if (!CanSave) return;
+        _saving = true;
+
+        await using var db = await Clinic.OpenAsync();
+        var patient = _editingId is null ? new Patient() : await db.Patients.SingleAsync(p => p.PatientId == _editingId);
+        patient.FirstName = _form.FirstName.Trim();
+        patient.LastName = _form.LastName.Trim();
+        patient.Phone = _form.Phone.Trim();
+        patient.Email = Blank(_form.Email);
+        patient.Street = Blank(_form.Street);
+        patient.City = Blank(_form.City);
+        patient.State = Blank(_form.State)?.ToUpperInvariant();
+        patient.Zip = Blank(_form.Zip);
+        patient.IsActive = _form.IsActive;
+        patient.DateOfBirth = DateOnly.FromDateTime(_dateOfBirth!.Value);
+        patient.HomeLocationId = _homeLocationId!.Value;
+        if (_editingId is null) db.Patients.Add(patient);
+
+        var result = await Scheduling.SaveAsync(db);
+        _saving = false;
+
+        _violation = result.Violation;
+        if (!result.Succeeded) return;
+
+        _open = false;
+        Snackbar.Add(_editingId is null ? $"Added {patient.FullName}" : $"Saved {patient.FullName}", Severity.Success);
+        await LoadAsync();
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}

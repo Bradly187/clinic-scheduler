@@ -1,0 +1,67 @@
+@page "/audit"
+@inject ClinicDb Clinic
+
+<PageTitle>Audit log · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Audit log</MudText>
+        <MudText Typo="Typo.body2" Class="lead">
+            Written by database triggers on every change to appointments and requests, including changes other
+            triggers make. The app never writes to this table.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">Refresh</MudButton>
+</div>
+
+<div class="panel">
+    @if (_entries is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_entries.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted pa-6">
+            No changes have been made yet. Book, cancel or review something and it will appear here.
+        </MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+            <thead>
+                <tr><th>When</th><th>Who</th><th>Record</th><th>Action</th><th>Before</th><th>After</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in _entries)
+                {
+                    <tr>
+                        <td class="time-cell">@entry.ChangedAt.ToString("MMM d, h:mm:ss tt")</td>
+                        <td>@(entry.ChangedByEmployee?.FullName ?? "Not identified")</td>
+                        <td>@entry.TableName #@entry.RecordId</td>
+                        <td><StatusChip Text="@entry.Action.ToString()" /></td>
+                        <td class="json-cell">@entry.OldValues</td>
+                        <td class="json-cell">@entry.NewValues</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        @if (_entries.Count == PageSize)
+        {
+            <MudText Typo="Typo.caption" Class="muted pa-3">Showing the latest @PageSize changes.</MudText>
+        }
+    }
+</div>
+
+@code {
+    private const int PageSize = 200;
+    private List<AuditLogEntry>? _entries;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await Clinic.OpenAsync();
+        _entries = await db.AuditLog.Include(a => a.ChangedByEmployee)
+            .OrderByDescending(a => a.AuditId).Take(PageSize).ToListAsync();
+    }
+}

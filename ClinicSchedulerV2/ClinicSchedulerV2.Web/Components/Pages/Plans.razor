@@ -1,0 +1,96 @@
+@page "/plans"
+@inject ClinicDb Clinic
+@inject DatabaseCatalog Catalog
+
+<PageTitle>Treatment plans · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Treatment plans</MudText>
+        <MudText Typo="Typo.body2" Class="lead">
+            Each plan lists recurring services at fixed intervals. Progress is counted from completed visits linked to the plan.
+        </MudText>
+    </div>
+</div>
+
+@if (_plans is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true">
+        @foreach (var plan in _plans)
+        {
+            <MudExpansionPanel>
+                <TitleContent>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Wrap="Wrap.Wrap">
+                        <MudText Typo="Typo.subtitle1" Style="min-width: 180px; font-weight: 600">@plan.Patient.FullName</MudText>
+                        <StatusChip Text="@plan.Status.ToString()" />
+                        <MudText Typo="Typo.body2" Class="muted">
+                            Ordered by @plan.OrderingProvider.DisplayName · since @plan.StartDate.ToString("MMM d, yyyy")
+                            @(plan.EndDate is { } end ? $" · until {end:MMM d, yyyy}" : "")
+                        </MudText>
+                    </MudStack>
+                </TitleContent>
+                <ChildContent>
+                    @if (!string.IsNullOrEmpty(plan.Notes))
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-3">@plan.Notes</MudText>
+                    }
+                    <MudSimpleTable Dense="true" Elevation="0">
+                        <thead>
+                            <tr><th>Service</th><th>Medication</th><th>Every</th><th>Sessions</th><th>Last completed</th><th>Next due</th><th>Next booked</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in plan.Items.OrderBy(i => i.PlanItemId))
+                            {
+                                var done = item.Appointments.Where(a => a.Status == AppointmentStatus.Completed).ToList();
+                                var last = done.Count == 0 ? (DateTime?)null : done.Max(a => a.StartTime);
+                                var due = last?.Date.AddDays(item.IntervalWeeks * 7);
+                                var booked = item.Appointments
+                                    .Where(a => a.Status == AppointmentStatus.Scheduled && a.StartTime >= _today)
+                                    .OrderBy(a => a.StartTime).FirstOrDefault()?.StartTime;
+                                <tr>
+                                    <td>@item.ServiceType.Name</td>
+                                    <td>@(item.Medication is null ? "" : $"{item.Medication.GenericName} ({item.Medication.BrandName})")</td>
+                                    <td>@item.IntervalWeeks weeks</td>
+                                    <td>@done.Count@(item.TotalSessions is { } total ? $" of {total}" : "")</td>
+                                    <td>@last?.ToString("MMM d, yyyy")</td>
+                                    <td>
+                                        @due?.ToString("MMM d, yyyy")
+                                        @if (due < _today && booked is null && plan.Status == PlanStatus.Active)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text" Class="ml-1">Overdue</MudChip>
+                                        }
+                                    </td>
+                                    <td>@(booked?.ToString("MMM d, yyyy") ?? (plan.Status == PlanStatus.Active && last is not null ? "Not booked" : ""))</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </ChildContent>
+            </MudExpansionPanel>
+        }
+    </MudExpansionPanels>
+}
+
+@code {
+    private List<TreatmentPlan>? _plans;
+    private DateTime _today = DateTime.Today;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _today = (await Catalog.ClinicTodayAsync()).ToDateTime(TimeOnly.MinValue);
+        await using var db = await Clinic.OpenAsync();
+        _plans = await db.TreatmentPlans
+            .Include(p => p.Patient)
+            .Include(p => p.OrderingProvider).ThenInclude(p => p.Employee)
+            .Include(p => p.Items).ThenInclude(i => i.ServiceType)
+            .Include(p => p.Items).ThenInclude(i => i.Medication)
+            .Include(p => p.Items).ThenInclude(i => i.Appointments)
+            .AsSplitQuery()
+            .OrderBy(p => p.Patient.LastName).ThenBy(p => p.PlanId)
+            .ToListAsync();
+    }
+}

@@ -1,0 +1,340 @@
+@page "/requests"
+@inject ClinicDb Clinic
+@inject SchedulingService Scheduling
+@inject ISnackbar Snackbar
+
+<PageTitle>Requests · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Requests</MudText>
+        <MudText Typo="Typo.body2" Class="lead">
+            Patient requests wait here for a staff decision. Approving a booking request books the visit through
+            the same database rules as any other appointment.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+               OnClick="OpenNewRequest">Log a patient request</MudButton>
+</div>
+
+<RuleAlert Violation="_pageViolation" />
+
+<div class="panel mb-6">
+    <div class="panel-title">Appointment requests <span class="muted">· @_requests.Count waiting</span></div>
+    @if (_requests.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted pa-4">No appointment requests are waiting.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+            <thead>
+                <tr><th>Submitted</th><th>Patient</th><th>Service</th><th>Preferred</th><th>Notes</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _requests)
+                {
+                    <tr>
+                        <td class="time-cell">@r.SubmittedAt.ToString("MMM d, h:mm tt")</td>
+                        <td>@r.Patient.FullName</td>
+                        <td>@r.ServiceType.Name</td>
+                        <td>
+                            @r.PreferredStart.ToString("ddd MMM d, h:mm tt")
+                            <br /><span class="muted">@(r.PreferredLocation?.ShortName ?? "Any location")</span>
+                        </td>
+                        <td>@r.PatientNotes</td>
+                        <td style="text-align: right; white-space: nowrap">
+                            <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => OpenApprove(r))">Approve</MudButton>
+                            <MudButton Size="Size.Small" OnClick="@(() => OpenDeny(r))">Deny</MudButton>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</div>
+
+<div class="panel">
+    <div class="panel-title">Cancellation requests <span class="muted">· @_cancellations.Count waiting</span></div>
+    @if (_cancellations.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted pa-4">No cancellation requests are waiting.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+            <thead>
+                <tr><th>Submitted</th><th>Patient</th><th>Appointment</th><th>Reason</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var c in _cancellations)
+                {
+                    <tr>
+                        <td class="time-cell">@c.SubmittedAt.ToString("MMM d, h:mm tt")</td>
+                        <td>@c.Appointment.Patient.FullName</td>
+                        <td>
+                            @c.Appointment.ServiceType.Name
+                            <br /><span class="muted">@c.Appointment.StartTime.ToString("ddd MMM d, h:mm tt")</span>
+                        </td>
+                        <td>@c.Reason</td>
+                        <td style="text-align: right; white-space: nowrap">
+                            <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => ReviewCancellation(c, true))">Approve</MudButton>
+                            <MudButton Size="Size.Small" OnClick="@(() => ReviewCancellation(c, false))">Deny</MudButton>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</div>
+
+@* ---- Approve: choose who, where and when ----------------------------------------- *@
+<MudDialog @bind-Visible="_approveOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">Approve and book</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_dialogViolation" />
+        @if (_active is not null)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">
+                @_active.Patient.FullName, @_active.ServiceType.Name
+                (@Slots.LengthLabel(_active.ServiceType.DefaultDurationMin), @_active.ServiceType.RequiredRoomType room).
+            </MudText>
+        }
+        <MudGrid Spacing="2">
+            <MudItem xs="12">
+                <IdSelect TItem="Provider" Items="_providers" Label="Provider"
+                          IdOf="@(p => p.EmployeeId)" TextOf="@(p => p.DisplayName)" @bind-Value="_providerId" />
+            </MudItem>
+            <MudItem xs="12">
+                <IdSelect TItem="Room" Items="_rooms" Label="Room"
+                          IdOf="@(r => r.RoomId)" TextOf="@(r => $"{r.Location.ShortName} · {r.RoomName} ({r.RoomType})")"
+                          @bind-Value="_roomId" />
+            </MudItem>
+            <MudItem xs="7">
+                <MudDatePicker @bind-Date="_startDate" Label="Date" DateFormat="ddd, MMM d, yyyy"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="5">
+                <MudSelect T="TimeSpan" @bind-Value="_startTime" Label="Starts" ToStringFunc="@(t => Slots.Label(t))"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                    @foreach (var time in Slots.StartTimes)
+                    {
+                        <MudSelectItem T="TimeSpan" Value="time">@Slots.Label(time)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _approveOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+                   Disabled="@(_providerId is null || _roomId is null || _startDate is null || _saving)" OnClick="Approve">
+            Approve and book
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@* ---- Deny with a reason ---------------------------------------------------------- *@
+<MudDialog @bind-Visible="_denyOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">Deny request</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_dialogViolation" />
+        @if (_active is not null)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">
+                @_active.Patient.FullName asked for a @_active.ServiceType.Name.ToLowerInvariant()
+                on @_active.PreferredStart.ToString("ddd MMM d 'at' h:mm tt").
+            </MudText>
+        }
+        <MudTextField T="string" @bind-Value="_note" Label="Reason given to the patient" Lines="2" Immediate="true"
+                      Variant="Variant.Outlined" Margin="Margin.Dense" AutoFocus="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _denyOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Error" DropShadow="false"
+                   Disabled="@(string.IsNullOrWhiteSpace(_note) || _saving)" OnClick="Deny">Deny request</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@* ---- Log a request a patient made by phone or at the desk ------------------------- *@
+<MudDialog @bind-Visible="_newOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">Log a patient request</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_dialogViolation" />
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <IdSelect TItem="Patient" Items="_patients" Label="Patient"
+                          IdOf="@(p => p.PatientId)" TextOf="@(p => p.FullName)" @bind-Value="_newPatientId" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <IdSelect TItem="ServiceType" Items="_services" Label="Service"
+                          IdOf="@(s => s.ServiceTypeId)" TextOf="@(s => s.Name)" @bind-Value="_newServiceId" />
+            </MudItem>
+            <MudItem xs="12">
+                <IdSelect TItem="Location" Items="_locations" Label="Preferred location (optional)" Clearable="true"
+                          IdOf="@(l => l.LocationId)" TextOf="@(l => l.ShortName)" @bind-Value="_newLocationId" />
+            </MudItem>
+            <MudItem xs="7">
+                <MudDatePicker @bind-Date="_startDate" Label="Preferred date" DateFormat="ddd, MMM d, yyyy"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="5">
+                <MudSelect T="TimeSpan" @bind-Value="_startTime" Label="Time" ToStringFunc="@(t => Slots.Label(t))"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                    @foreach (var time in Slots.StartTimes)
+                    {
+                        <MudSelectItem T="TimeSpan" Value="time">@Slots.Label(time)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField T="string" @bind-Value="_note" Label="Patient's notes (optional)" Lines="2"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _newOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+                   Disabled="@(_newPatientId is null || _newServiceId is null || _startDate is null || _saving)"
+                   OnClick="SubmitNew">Add to queue</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+
+    private List<AppointmentRequest> _requests = [];
+    private List<CancellationRequest> _cancellations = [];
+    private List<Provider> _providers = [];
+    private List<Room> _rooms = [];
+    private List<Patient> _patients = [];
+    private List<ServiceType> _services = [];
+    private List<Location> _locations = [];
+
+    private DbRuleViolation? _pageViolation, _dialogViolation;
+    private bool _approveOpen, _denyOpen, _newOpen, _saving;
+    private AppointmentRequest? _active;
+    private int? _providerId, _roomId, _newPatientId, _newServiceId, _newLocationId;
+    private DateTime? _startDate;
+    private TimeSpan _startTime = TimeSpan.FromHours(9);
+    private string _note = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using (var db = await Clinic.OpenAsync())
+        {
+            _providers = await db.Providers.Include(p => p.Employee).Where(p => p.Employee.IsActive)
+                .OrderBy(p => p.Employee.LastName).ToListAsync();
+            _rooms = await db.Rooms.Include(r => r.Location).Where(r => r.IsActive).OrderBy(r => r.RoomId).ToListAsync();
+            _patients = await db.Patients.Where(p => p.IsActive).OrderBy(p => p.LastName).ThenBy(p => p.FirstName).ToListAsync();
+            _services = await db.ServiceTypes.Where(s => s.IsActive).OrderBy(s => s.ServiceTypeId).ToListAsync();
+            _locations = await db.Locations.OrderBy(l => l.LocationId).ToListAsync();
+        }
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await Clinic.OpenAsync();
+        _requests = await db.AppointmentRequests
+            .Include(r => r.Patient).Include(r => r.ServiceType).Include(r => r.PreferredLocation)
+            .Where(r => r.Status == RequestStatus.Pending)
+            .OrderBy(r => r.SubmittedAt).ToListAsync();
+        _cancellations = await db.CancellationRequests
+            .Include(c => c.Appointment).ThenInclude(a => a.Patient)
+            .Include(c => c.Appointment).ThenInclude(a => a.ServiceType)
+            .Where(c => c.Status == RequestStatus.Pending)
+            .OrderBy(c => c.SubmittedAt).ToListAsync();
+    }
+
+    private void OpenApprove(AppointmentRequest request)
+    {
+        _active = request;
+        _dialogViolation = null;
+        _providerId = null;
+        // Start from what the patient asked for; staff can change any of it
+        _roomId = _rooms.FirstOrDefault(r =>
+            (request.PreferredLocationId is null || r.LocationId == request.PreferredLocationId)
+            && r.RoomType == request.ServiceType.RequiredRoomType)?.RoomId;
+        _startDate = request.PreferredStart.Date;
+        _startTime = request.PreferredStart.TimeOfDay;
+        _approveOpen = true;
+    }
+
+    private async Task Approve()
+    {
+        if (_active is null || _providerId is null || _roomId is null || _startDate is null) return;
+        var start = _startDate.Value.Date + _startTime;
+
+        _saving = true;
+        var result = await Scheduling.ApproveRequestAsync(_active.RequestId, _providerId.Value, _roomId.Value, start);
+        _saving = false;
+
+        _dialogViolation = result.Violation;
+        if (!result.Succeeded) return;
+
+        _approveOpen = false;
+        Snackbar.Add($"Booked {_active.Patient.FullName} for {start:ddd MMM d 'at' h:mm tt}", Severity.Success);
+        await LoadAsync();
+    }
+
+    private void OpenDeny(AppointmentRequest request)
+    {
+        _active = request;
+        _dialogViolation = null;
+        _note = "";
+        _denyOpen = true;
+    }
+
+    private async Task Deny()
+    {
+        if (_active is null) return;
+        _saving = true;
+        var result = await Scheduling.DenyRequestAsync(_active.RequestId, _note.Trim());
+        _saving = false;
+
+        _dialogViolation = result.Violation;
+        if (!result.Succeeded) return;
+
+        _denyOpen = false;
+        Snackbar.Add("Request denied", Severity.Info);
+        await LoadAsync();
+    }
+
+    private async Task ReviewCancellation(CancellationRequest request, bool approve)
+    {
+        var result = await Scheduling.ReviewCancellationAsync(request.CancelRequestId, approve);
+        _pageViolation = result.Violation;
+        if (result.Succeeded)
+            Snackbar.Add(approve ? "Cancellation approved; the appointment is canceled" : "Cancellation denied; the appointment stands",
+                approve ? Severity.Success : Severity.Info);
+        await LoadAsync();
+    }
+
+    private void OpenNewRequest()
+    {
+        _dialogViolation = null;
+        _newPatientId = _newServiceId = _newLocationId = null;
+        _startDate = DateTime.Today.AddDays(7);
+        _startTime = TimeSpan.FromHours(9);
+        _note = "";
+        _newOpen = true;
+    }
+
+    private async Task SubmitNew()
+    {
+        if (_newPatientId is null || _newServiceId is null || _startDate is null) return;
+        _saving = true;
+        var result = await Scheduling.SubmitAppointmentRequestAsync(
+            _newPatientId.Value, _newServiceId.Value, _newLocationId, _startDate.Value.Date + _startTime, _note);
+        _saving = false;
+
+        _dialogViolation = result.Violation;
+        if (!result.Succeeded) return;
+
+        _newOpen = false;
+        Snackbar.Add("Request added to the queue", Severity.Success);
+        await LoadAsync();
+    }
+}

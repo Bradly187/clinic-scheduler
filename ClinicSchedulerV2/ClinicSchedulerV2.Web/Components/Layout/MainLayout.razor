@@ -1,0 +1,129 @@
+﻿@inherits LayoutComponentBase
+@inject ClinicDb Clinic
+@inject ActingUser Acting
+
+<MudThemeProvider Theme="_theme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="0" Dense="true" Class="app-bar">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
+                       OnClick="@(() => _drawerOpen = !_drawerOpen)" aria-label="Toggle navigation" />
+        <MudText Typo="Typo.h6" Class="ml-2">ClinicScheduler</MudText>
+        <MudText Typo="Typo.caption" Class="ml-3 app-bar-sub d-none d-sm-flex">Houston Arthritis Center</MudText>
+        <MudSpacer />
+        @if (Acting.Name is not null)
+        {
+            <MudIcon Icon="@Icons.Material.Outlined.Badge" Size="Size.Small" Class="mr-1" />
+            <MudText Typo="Typo.body2">@Acting.Name</MudText>
+        }
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" Elevation="0" ClipMode="DrawerClipMode.Always" Class="app-drawer">
+        <div class="pa-4 pb-2">
+            <IdSelect TItem="Staff" Items="_staff" Label="Working as"
+                      IdOf="@(s => s.EmployeeId)" TextOf="@(s => $"{s.Employee.FullName} · {s.JobTitle}")"
+                      Value="Acting.EmployeeId" ValueChanged="SetActing" />
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">Recorded in the audit log with every change.</MudText>
+        </div>
+        <MudNavMenu Class="mt-1">
+            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.SpaceDashboard">Overview</MudNavLink>
+            <MudNavLink Href="/schedule" Icon="@Icons.Material.Outlined.CalendarMonth">Schedule</MudNavLink>
+            <MudNavLink Href="/requests" Icon="@Icons.Material.Outlined.Inbox">Requests</MudNavLink>
+            <MudNavLink Href="/patients" Icon="@Icons.Material.Outlined.People">Patients</MudNavLink>
+            <MudNavLink Href="/plans" Icon="@Icons.Material.Outlined.Assignment">Treatment plans</MudNavLink>
+            <MudNavLink Href="/directory" Icon="@Icons.Material.Outlined.Apartment">Clinic directory</MudNavLink>
+            <MudDivider Class="my-2" />
+            <MudNavLink Href="/reports" Icon="@Icons.Material.Outlined.Insights">Reports</MudNavLink>
+            <MudNavLink Href="/audit" Icon="@Icons.Material.Outlined.History">Audit log</MudNavLink>
+            <MudNavLink Href="/rules" Icon="@Icons.Material.Outlined.Rule">Database rules</MudNavLink>
+        </MudNavMenu>
+    </MudDrawer>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-6 px-4 px-md-8">
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error">
+                    Could not reach the database: @_error
+                </MudAlert>
+            }
+            else if (_ready)
+            {
+                @Body
+            }
+            else
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private bool _drawerOpen = true;
+    private bool _ready;
+    private string? _error;
+    private List<Staff> _staff = [];
+
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#0f6e6e",
+            Secondary = "#b45309",
+            AppbarBackground = "#0c4f52",
+            AppbarText = "#ffffff",
+            Background = "#f5f7f7",
+            Surface = "#ffffff",
+            DrawerBackground = "#ffffff",
+            TextPrimary = "#16282b",
+            TextSecondary = "#55696c",
+            Divider = "#dfe6e6",
+            LinesDefault = "#dfe6e6",
+            TableLines = "#e6ecec",
+            Success = "#2e7d32",
+            Error = "#b3261e",
+            Warning = "#b45309",
+            Info = "#1d5fa8",
+        },
+        Typography = new Typography
+        {
+            Default = new DefaultTypography { FontFamily = ["Inter", "Segoe UI", "Helvetica", "Arial", "sans-serif"] },
+        },
+        LayoutProperties = new LayoutProperties { DefaultBorderRadius = "8px", DrawerWidthLeft = "264px" },
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await using var db = await Clinic.OpenAsync();
+            _staff = await db.Staff.Include(s => s.Employee)
+                .Where(s => s.Employee.IsActive)
+                .OrderBy(s => s.Employee.LastName).ThenBy(s => s.Employee.FirstName)
+                .ToListAsync();
+            if (Acting.EmployeeId is null && _staff.Count > 0)
+                Acting.Set(_staff[0].EmployeeId, _staff[0].Employee.FullName);
+            _ready = true;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetBaseException().Message;
+        }
+    }
+
+    private void SetActing(int? employeeId)
+    {
+        var staff = _staff.FirstOrDefault(s => s.EmployeeId == employeeId);
+        Acting.Set(staff?.EmployeeId, staff?.Employee.FullName);
+    }
+}

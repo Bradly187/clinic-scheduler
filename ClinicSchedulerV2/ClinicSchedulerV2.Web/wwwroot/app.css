@@ -1,0 +1,103 @@
+html, body {
+    font-family: Inter, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+h1:focus {
+    outline: none;
+}
+
+.app-bar-sub {
+    opacity: 0.75;
+}
+
+.app-drawer {
+    border-right: 1px solid var(--mud-palette-divider);
+}
+
+/* Page header: title on the left, primary action on the right */
+.page-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.page-head .lead {
+    color: var(--mud-palette-text-secondary);
+    max-width: 68ch;
+}
+
+.panel {
+    background: var(--mud-palette-surface);
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 10px;
+}
+
+.panel-title {
+    padding: 14px 16px 10px;
+    font-weight: 600;
+}
+
+.stat {
+    padding: 16px 18px;
+}
+
+.stat .value {
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat .label {
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.85rem;
+}
+
+.time-cell {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.muted {
+    color: var(--mud-palette-text-secondary);
+}
+
+.mono, code {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 0.82rem;
+}
+
+.json-cell {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 0.78rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-width: 44ch;
+}
+
+.result-table-wrap {
+    overflow-x: auto;
+}
+
+.result-table-wrap td, .result-table-wrap th {
+    white-space: nowrap;
+}
+
+.result-table-wrap td.wrap {
+    white-space: normal;
+    min-width: 30ch;
+}
+
+.blazor-error-boundary {
+    background: #b32121;
+    padding: 1rem 1rem 1rem 3.7rem;
+    color: white;
+}
+
+.blazor-error-boundary::after {
+    content: "An error has occurred.";
+}

@@ -1,0 +1,94 @@
+@page "/reports"
+@inject DatabaseCatalog Catalog
+
+<PageTitle>Reports · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Reports</MudText>
+        <MudText Typo="Typo.body2" Class="lead">Eight questions the clinic's managers ask, each answered by one SQL query.</MudText>
+    </div>
+    <MudDatePicker Date="_asOf" DateChanged="SetAsOf" Label="As of" DateFormat="MMM d, yyyy"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width: 190px" />
+</div>
+
+<MudGrid Spacing="3">
+    <MudItem xs="12" md="4" lg="3">
+        <div class="panel">
+            <MudList T="ReportDefinition" SelectedValue="_selected" SelectedValueChanged="Select" Color="Color.Primary" Dense="true">
+                @foreach (var report in Catalog.Reports)
+                {
+                    <MudListItem T="ReportDefinition" Value="report">@report.Title</MudListItem>
+                }
+            </MudList>
+        </div>
+    </MudItem>
+    <MudItem xs="12" md="8" lg="9">
+        <div class="panel">
+            @if (_selected is not null)
+            {
+                <div class="panel-title">
+                    @_selected.Question
+                </div>
+                @if (_error is not null)
+                {
+                    <MudAlert Severity="Severity.Error" Class="ma-3">@_error</MudAlert>
+                }
+                else
+                {
+                    <ResultTable Result="_result" EmptyText="Nothing to report for this date." />
+                }
+                <MudExpansionPanels Elevation="0" Class="mt-2">
+                    <MudExpansionPanel Text="Show the SQL">
+                        <pre class="mono" style="white-space: pre-wrap; margin: 0">@_selected.Sql</pre>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            }
+        </div>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private DateTime? _asOf;
+    private ReportDefinition? _selected;
+    private QueryResult? _result;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _asOf = (await Catalog.ClinicTodayAsync()).ToDateTime(TimeOnly.MinValue);
+        await Select(Catalog.Reports.FirstOrDefault());
+    }
+
+    private async Task SetAsOf(DateTime? date)
+    {
+        _asOf = date ?? _asOf;
+        await RunAsync();
+    }
+
+    private async Task Select(ReportDefinition? report)
+    {
+        if (report is null) return;
+        _selected = report;
+        await RunAsync();
+    }
+
+    private async Task RunAsync()
+    {
+        if (_selected is null || _asOf is null) return;
+        _result = null;
+        _error = null;
+        var run = ++_runNumber; // a slower earlier run must not overwrite a newer one
+        try
+        {
+            var result = await Catalog.RunReportAsync(_selected, DateOnly.FromDateTime(_asOf.Value));
+            if (run == _runNumber) _result = result;
+        }
+        catch (Exception ex)
+        {
+            if (run == _runNumber) _error = ex.GetBaseException().Message;
+        }
+    }
+
+    private int _runNumber;
+}

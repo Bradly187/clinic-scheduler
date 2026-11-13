@@ -1,0 +1,96 @@
+﻿@page "/"
+@inject ClinicDb Clinic
+@inject DatabaseCatalog Catalog
+
+<PageTitle>Overview · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Overview</MudText>
+        <MudText Typo="Typo.body2" Class="lead">@_today.ToString("dddd, MMMM d, yyyy")</MudText>
+    </div>
+    <MudButton Href="/schedule" Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+               StartIcon="@Icons.Material.Filled.Add">Book an appointment</MudButton>
+</div>
+
+<MudGrid Spacing="3">
+    <MudItem xs="6" md="3">
+        <div class="panel stat"><div class="value">@_todayCount</div><div class="label">Visits today</div></div>
+    </MudItem>
+    <MudItem xs="6" md="3">
+        <div class="panel stat"><div class="value">@_upcomingCount</div><div class="label">Scheduled ahead</div></div>
+    </MudItem>
+    <MudItem xs="6" md="3">
+        <div class="panel stat"><div class="value">@(_queue?.Rows.Count ?? 0)</div><div class="label">Requests waiting for review</div></div>
+    </MudItem>
+    <MudItem xs="6" md="3">
+        <div class="panel stat"><div class="value">@_patientCount</div><div class="label">Active patients</div></div>
+    </MudItem>
+
+    <MudItem xs="12" lg="6">
+        <div class="panel">
+            <div class="panel-title">Next appointments</div>
+            @if (_next.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted pa-4">Nothing is scheduled ahead.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <tbody>
+                        @foreach (var a in _next)
+                        {
+                            <tr>
+                                <td class="time-cell">@a.StartTime.ToString("ddd MMM d")<br /><span class="muted">@Slots.Range(a.StartTime, a.EndTime)</span></td>
+                                <td>@a.Patient.FullName<br /><span class="muted">@a.ServiceType.Name</span></td>
+                                <td>@a.Provider.DisplayName<br /><span class="muted">@a.Room.RoomName, @a.Room.Location.ShortName</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </div>
+    </MudItem>
+
+    <MudItem xs="12" lg="6">
+        <div class="panel">
+            <div class="panel-title d-flex align-center">
+                Waiting for review
+                <MudSpacer />
+                <MudButton Href="/requests" Size="Size.Small" Color="Color.Primary">Open queue</MudButton>
+            </div>
+            <ResultTable Result="_queue" EmptyText="No requests are waiting." WrapColumns="@(["Details"])" />
+        </div>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private DateOnly _today = DateOnly.FromDateTime(DateTime.Today);
+    private int _todayCount, _upcomingCount, _patientCount;
+    private List<Appointment> _next = [];
+    private QueryResult? _queue;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _today = await Catalog.ClinicTodayAsync();
+        var dayStart = _today.ToDateTime(TimeOnly.MinValue);
+        var dayEnd = dayStart.AddDays(1);
+
+        await using (var db = await Clinic.OpenAsync())
+        {
+            _todayCount = await db.Appointments.CountAsync(a =>
+                a.StartTime >= dayStart && a.StartTime < dayEnd && a.Status != AppointmentStatus.Canceled);
+            _upcomingCount = await db.Appointments.CountAsync(a =>
+                a.StartTime >= dayEnd && a.Status == AppointmentStatus.Scheduled);
+            _patientCount = await db.Patients.CountAsync(p => p.IsActive);
+            _next = await db.Appointments
+                .Include(a => a.Patient).Include(a => a.ServiceType)
+                .Include(a => a.Provider).ThenInclude(p => p.Employee)
+                .Include(a => a.Room).ThenInclude(r => r.Location)
+                .Where(a => a.StartTime >= dayStart && a.Status == AppointmentStatus.Scheduled)
+                .OrderBy(a => a.StartTime).Take(7)
+                .ToListAsync();
+        }
+        _queue = await Catalog.PendingQueueAsync();
+    }
+}
