@@ -1,0 +1,241 @@
+@page "/directory"
+@inject ClinicDb Clinic
+@inject SchedulingService Scheduling
+@inject ISnackbar Snackbar
+
+<PageTitle>Clinic directory · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Clinic directory</MudText>
+        <MudText Typo="Typo.body2" Class="lead">
+            Locations, rooms, people and catalogs. Room capacity and each location's patient limit are what the
+            booking rules check against.
+        </MudText>
+    </div>
+</div>
+
+<MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pt-4">
+    <MudTabPanel Text="Locations and rooms">
+        <MudGrid Spacing="3">
+            @foreach (var location in _locations)
+            {
+                <MudItem xs="12" lg="4">
+                    <div class="panel">
+                        <div class="panel-title d-flex align-center">
+                            @location.ShortName
+                            <MudSpacer />
+                            <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => EditLocation(location))"
+                                           aria-label="@($"Edit {location.ShortName}")" />
+                        </div>
+                        <MudText Typo="Typo.body2" Class="muted px-4 pb-3">
+                            @location.Street, @location.City, @location.State @location.Zip · @location.Phone
+                            <br />Up to <b>@location.MaxConcurrentPatients</b> patients at the same time
+                        </MudText>
+                        <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                            <thead><tr><th>Room</th><th>Type</th><th>Holds</th><th></th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var room in location.Rooms.OrderBy(r => r.RoomId))
+                                {
+                                    <tr>
+                                        <td>@room.RoomName</td>
+                                        <td>@room.RoomType</td>
+                                        <td>@room.Capacity</td>
+                                        <td>@if (!room.IsActive) { <StatusChip Text="Inactive" /> }</td>
+                                        <td style="text-align: right">
+                                            <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" OnClick="@(() => EditRoom(room))"
+                                                           aria-label="@($"Edit {room.RoomName}")" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                </MudItem>
+            }
+        </MudGrid>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Providers">
+        <div class="panel">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead><tr><th>Provider</th><th>NPI</th><th>Works at</th><th>Qualified for</th></tr></thead>
+                <tbody>
+                    @foreach (var provider in _providers)
+                    {
+                        <tr>
+                            <td>@provider.DisplayName<br /><span class="muted">@provider.Employee.Email</span></td>
+                            <td class="mono">@provider.Npi</td>
+                            <td>@string.Join(", ", provider.Employee.Locations.OrderBy(l => l.LocationId).Select(l => l.ShortName))</td>
+                            <td>@string.Join(", ", provider.Services.OrderBy(s => s.ServiceTypeId).Select(s => s.Name))</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Staff">
+        <div class="panel">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead><tr><th>Name</th><th>Role</th><th>Works at</th><th>Hired</th></tr></thead>
+                <tbody>
+                    @foreach (var staff in _staff)
+                    {
+                        <tr>
+                            <td>@staff.Employee.FullName<br /><span class="muted">@staff.Employee.Email</span></td>
+                            <td>@staff.JobTitle</td>
+                            <td>@string.Join(", ", staff.Employee.Locations.OrderBy(l => l.LocationId).Select(l => l.ShortName))</td>
+                            <td>@staff.Employee.HireDate.ToString("MMM yyyy")</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Services and medications">
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="6">
+                <div class="panel">
+                    <div class="panel-title">Services</div>
+                    <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                        <thead><tr><th>Service</th><th>Default length</th><th>Needs room type</th></tr></thead>
+                        <tbody>
+                            @foreach (var service in _services)
+                            {
+                                <tr><td>@service.Name</td><td>@Slots.LengthLabel(service.DefaultDurationMin)</td><td>@service.RequiredRoomType</td></tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <div class="panel">
+                    <div class="panel-title">Medications</div>
+                    <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                        <thead><tr><th>Generic name</th><th>Brand</th><th>Class</th></tr></thead>
+                        <tbody>
+                            @foreach (var medication in _medications)
+                            {
+                                <tr><td>@medication.GenericName</td><td>@medication.BrandName</td><td>@medication.DrugClass</td></tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </MudItem>
+        </MudGrid>
+    </MudTabPanel>
+</MudTabs>
+
+<MudDialog @bind-Visible="_roomOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">@_roomTitle</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_violation" />
+        <MudNumericField T="int" @bind-Value="_capacity" Label="Patients the room holds" Min="0" Max="10"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudSwitch T="bool" @bind-Value="_roomActive" Color="Color.Primary" Label="In service (can be booked)" Class="mt-2" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _roomOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" OnClick="SaveRoom">Save changes</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_locationOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">@_locationTitle</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_violation" />
+        <MudNumericField T="int" @bind-Value="_maxConcurrent" Label="Most patients on site at the same time" Min="0" Max="100"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudTextField T="string" @bind-Value="_phone" Label="Phone" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3" />
+        <MudTextField T="string" @bind-Value="_zip" Label="ZIP" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _locationOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" OnClick="SaveLocation">Save changes</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true, CloseOnEscapeKey = true };
+
+    private List<Location> _locations = [];
+    private List<Provider> _providers = [];
+    private List<Staff> _staff = [];
+    private List<ServiceType> _services = [];
+    private List<Medication> _medications = [];
+
+    private DbRuleViolation? _violation;
+    private bool _roomOpen, _locationOpen, _roomActive;
+    private int _editId, _capacity, _maxConcurrent;
+    private string _roomTitle = "", _locationTitle = "", _phone = "", _zip = "";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await Clinic.OpenAsync();
+        _locations = await db.Locations.Include(l => l.Rooms).OrderBy(l => l.LocationId).ToListAsync();
+        _providers = await db.Providers
+            .Include(p => p.Employee).ThenInclude(e => e.Locations)
+            .Include(p => p.Services)
+            .AsSplitQuery()
+            .OrderBy(p => p.Employee.LastName).ToListAsync();
+        _staff = await db.Staff.Include(s => s.Employee).ThenInclude(e => e.Locations)
+            .OrderBy(s => s.Employee.LastName).ToListAsync();
+        _services = await db.ServiceTypes.OrderBy(s => s.ServiceTypeId).ToListAsync();
+        _medications = await db.Medications.OrderBy(m => m.DrugClass).ThenBy(m => m.GenericName).ToListAsync();
+    }
+
+    private void EditRoom(Room room)
+    {
+        _violation = null;
+        _editId = room.RoomId;
+        _roomTitle = $"{room.RoomName} ({room.RoomType} room)";
+        _capacity = room.Capacity;
+        _roomActive = room.IsActive;
+        _roomOpen = true;
+    }
+
+    private async Task SaveRoom()
+    {
+        await using var db = await Clinic.OpenAsync();
+        var room = await db.Rooms.SingleAsync(r => r.RoomId == _editId);
+        room.Capacity = (short)_capacity;
+        room.IsActive = _roomActive;
+        if (await SavedAsync(db)) _roomOpen = false;
+    }
+
+    private void EditLocation(Location location)
+    {
+        _violation = null;
+        _editId = location.LocationId;
+        _locationTitle = location.ShortName;
+        _maxConcurrent = location.MaxConcurrentPatients;
+        _phone = location.Phone;
+        _zip = location.Zip;
+        _locationOpen = true;
+    }
+
+    private async Task SaveLocation()
+    {
+        await using var db = await Clinic.OpenAsync();
+        var location = await db.Locations.SingleAsync(l => l.LocationId == _editId);
+        location.MaxConcurrentPatients = (short)_maxConcurrent;
+        location.Phone = _phone.Trim();
+        location.Zip = _zip.Trim();
+        if (await SavedAsync(db)) _locationOpen = false;
+    }
+
+    private async Task<bool> SavedAsync(ClinicDbContext db)
+    {
+        var result = await Scheduling.SaveAsync(db);
+        _violation = result.Violation;
+        if (!result.Succeeded) return false;
+
+        Snackbar.Add("Saved", Severity.Success);
+        await LoadAsync();
+        return true;
+    }
+}

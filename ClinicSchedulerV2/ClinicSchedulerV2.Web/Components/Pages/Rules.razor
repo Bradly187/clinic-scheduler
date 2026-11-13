@@ -1,0 +1,68 @@
+@page "/rules"
+@inject DatabaseCatalog Catalog
+
+<PageTitle>Database rules · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Database rules</MudText>
+        <MudText Typo="Typo.body2" Class="lead">
+            Everything on this page is read live from PostgreSQL's own catalog. The application holds no copy of
+            these rules: it sends each change to the database and shows what the database decides.
+        </MudText>
+    </div>
+</div>
+
+<MudGrid Spacing="3" Class="mb-2">
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@Count("CHECK")</div><div class="label">CHECK constraints (single-row rules)</div></div></MudItem>
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@(_triggers?.Rows.Count ?? 0)</div><div class="label">Triggers (rules across rows and tables)</div></div></MudItem>
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@(Count("UNIQUE") + Count("UNIQUE (partial index)") + Count("EXCLUDE"))</div><div class="label">Unique and exclusion constraints</div></div></MudItem>
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@Count("FOREIGN KEY")</div><div class="label">Foreign keys</div></div></MudItem>
+</MudGrid>
+
+<MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pt-4">
+    <MudTabPanel Text="Constraints">
+        <MudStack Row="true" Spacing="1" Class="mb-3" Wrap="Wrap.Wrap">
+            @foreach (var kind in Kinds)
+            {
+                var k = kind;
+                <MudChip T="string" Size="Size.Small" Variant="@(_kind == k ? Variant.Filled : Variant.Outlined)"
+                         Color="@(_kind == k ? Color.Primary : Color.Default)" OnClick="@(() => _kind = k)">@k</MudChip>
+            }
+        </MudStack>
+        <div class="panel">
+            <ResultTable Result="Shown" MonoColumns="@(["Rule", "Definition"])" WrapColumns="@(["What it means"])" />
+        </div>
+    </MudTabPanel>
+    <MudTabPanel Text="Triggers">
+        <div class="panel"><ResultTable Result="_triggers" MonoColumns="@(["Trigger", "Runs"])" /></div>
+    </MudTabPanel>
+    <MudTabPanel Text="Stored routines">
+        <div class="panel"><ResultTable Result="_routines" MonoColumns="@(["Routine", "Arguments", "Returns"])" WrapColumns="@(["Arguments"])" /></div>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private static readonly string[] Kinds = ["Rules you can break", "CHECK", "UNIQUE", "EXCLUDE", "FOREIGN KEY", "PRIMARY KEY", "All"];
+
+    private QueryResult? _constraints, _triggers, _routines;
+    private string _kind = Kinds[0];
+
+    // "Rules you can break" = everything except the keys that only tie tables together
+    private QueryResult? Shown => _constraints is null ? null : new QueryResult(_constraints.Columns, _constraints.Rows.Where(r => _kind switch
+    {
+        "All" => true,
+        "Rules you can break" => r[2] is not ("FOREIGN KEY" or "PRIMARY KEY"),
+        "UNIQUE" => r[2].StartsWith("UNIQUE", StringComparison.Ordinal),
+        _ => r[2] == _kind,
+    }).ToList());
+
+    private int Count(string kind) => _constraints?.Rows.Count(r => r[2] == kind) ?? 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _constraints = await Catalog.ConstraintsAsync();
+        _triggers = await Catalog.TriggersAsync();
+        _routines = await Catalog.RoutinesAsync();
+    }
+}

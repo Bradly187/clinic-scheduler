@@ -46,7 +46,7 @@ public class OrchestratorAgentServiceTests
         _mockExecutor.Setup(e => e.ExecuteAsync("get_my_appointments", It.IsAny<JsonObject?>()))
             .ReturnsAsync("Upcoming Appointments: 2 found");
 
-        var agent = new AgentService(httpClient, _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object, NullLogger<AgentService>.Instance);
+        var agent = new AgentService(httpClient, _config, new GeminiLlmClient(httpClient, _config, NullLogger<GeminiLlmClient>.Instance), _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object, NullLogger<AgentService>.Instance);
 
         var orchestrator = BuildOrchestrator(agent);
 
@@ -91,7 +91,8 @@ public class OrchestratorAgentServiceTests
             Text("Let's get you registered. What is your date of birth?")
         });
         var handler = new MockHttpMessageHandler(responses);
-        var agent = new AgentService(new HttpClient(handler), _config, _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object, NullLogger<AgentService>.Instance);
+        var httpClient = new HttpClient(handler);
+        var agent = new AgentService(httpClient, _config, new GeminiLlmClient(httpClient, _config, NullLogger<GeminiLlmClient>.Instance), _mockRegistry.Object, _mockExecutor.Object, _mockUserService.Object, NullLogger<AgentService>.Instance);
         var orchestrator = BuildOrchestrator(agent);
 
         var chatHistory = new JsonArray

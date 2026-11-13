@@ -1,0 +1,50 @@
+@inject DatabaseCatalog Catalog
+
+@* Shows a write the database refused, in the database's own words. *@
+@if (Violation is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="@Class">
+        <MudText Typo="Typo.subtitle2">The database did not accept this</MudText>
+        <MudText Typo="Typo.body2">@_text</MudText>
+        <MudText Typo="Typo.caption" Class="muted">
+            @KindLabel@(Violation.Constraint is null ? "" : " · ")<span class="mono">@Violation.Constraint</span>
+        </MudText>
+    </MudAlert>
+}
+
+@code {
+    [Parameter] public DbRuleViolation? Violation { get; set; }
+    [Parameter] public string? Class { get; set; } = "mb-3";
+
+    private DbRuleViolation? _shown;
+    private string _text = "";
+
+    private string KindLabel => Violation?.Kind switch
+    {
+        DbRuleKind.BusinessRule => "Scheduling rule (trigger)",
+        DbRuleKind.Check => "CHECK constraint",
+        DbRuleKind.Exclusion => "Exclusion constraint",
+        DbRuleKind.Unique => "UNIQUE constraint",
+        DbRuleKind.ForeignKey => "Foreign key",
+        DbRuleKind.NotNull => "Required value",
+        _ => "",
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ReferenceEquals(Violation, _shown)) return;
+        _shown = Violation;
+        if (Violation is null) return;
+
+        // Triggers and routines already raise readable messages. For constraints, use the
+        // description stored on the constraint in the database (COMMENT ON CONSTRAINT).
+        _text = Violation.Kind == DbRuleKind.BusinessRule
+            ? Violation.Message
+            : await Catalog.DescribeAsync(Violation.Constraint) ?? Violation.Kind switch
+            {
+                DbRuleKind.ForeignKey => "This refers to a record that does not exist, or removes one that is still in use.",
+                DbRuleKind.NotNull => "A required value is missing.",
+                _ => Violation.Message,
+            };
+    }
+}

@@ -1,0 +1,412 @@
+@page "/schedule"
+@inject ClinicDb Clinic
+@inject SchedulingService Scheduling
+@inject DatabaseCatalog Catalog
+@inject ISnackbar Snackbar
+
+<PageTitle>Schedule · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Schedule</MudText>
+        <MudText Typo="Typo.body2" Class="lead">
+            Bookings are checked by the database when they are saved: double-booking, room type and capacity,
+            provider qualification and location, and clinic hours.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+               StartIcon="@Icons.Material.Filled.Add" OnClick="OpenBooking">Book appointment</MudButton>
+</div>
+
+<div class="panel">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="pa-3" Wrap="Wrap.Wrap">
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" OnClick="@(() => ShiftDay(-1))" aria-label="Previous day" />
+        <MudDatePicker Date="_date" DateChanged="SetDate" Label="Day" DateFormat="ddd, MMM d, yyyy"
+                       Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width: 220px" />
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" OnClick="@(() => ShiftDay(1))" aria-label="Next day" />
+        <MudButton Size="Size.Small" OnClick="@(() => SetDate(_today))">Today</MudButton>
+        <MudSpacer />
+        <IdSelect TItem="Location" Items="_locations" Label="Location" Clearable="true" Class="location-filter"
+                  IdOf="@(l => l.LocationId)" TextOf="@(l => l.ShortName)"
+                  Value="_locationId" ValueChanged="SetLocation" />
+    </MudStack>
+    <MudDivider />
+
+    <RuleAlert Violation="_rowViolation" Class="ma-3" />
+
+    @if (_appointments is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_appointments.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted pa-6">
+            Nothing is booked @(_locationId is null ? "" : "at this location ")on @_date?.ToString("dddd, MMMM d").
+        </MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Patient</th>
+                    <th>Service</th>
+                    <th>Provider</th>
+                    <th>Room</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in _appointments)
+                {
+                    <tr>
+                        <td class="time-cell">@Slots.Range(a.StartTime, a.EndTime)</td>
+                        <td>@a.Patient.FullName</td>
+                        <td>
+                            @a.ServiceType.Name
+                            @if (!string.IsNullOrEmpty(a.Notes))
+                            {
+                                <br /><span class="muted">@a.Notes</span>
+                            }
+                        </td>
+                        <td>@a.Provider.DisplayName</td>
+                        <td>@a.Room.RoomName<br /><span class="muted">@a.Room.Location.ShortName</span></td>
+                        <td><StatusChip Text="@a.Status.ToString()" /></td>
+                        <td style="text-align: right">
+                            @if (a.Status != AppointmentStatus.Completed)
+                            {
+                                <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true"
+                                         AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" aria-label="Actions">
+                                    @if (a.Status == AppointmentStatus.Scheduled)
+                                    {
+                                        <MudMenuItem OnClick="@(() => SetStatus(a, AppointmentStatus.Completed))">Mark completed</MudMenuItem>
+                                        <MudMenuItem OnClick="@(() => SetStatus(a, AppointmentStatus.Missed))">Mark missed</MudMenuItem>
+                                        <MudDivider />
+                                        <MudMenuItem OnClick="@(() => AskReason(a, clinic: true))">Cancel (clinic)</MudMenuItem>
+                                        <MudMenuItem OnClick="@(() => AskReason(a, clinic: false))">Patient asked to cancel</MudMenuItem>
+                                    }
+                                    else if (a.Status == AppointmentStatus.Missed)
+                                    {
+                                        <MudMenuItem OnClick="@(() => Reschedule(a))">Reschedule to first open slot</MudMenuItem>
+                                    }
+                                    else if (a.Status == AppointmentStatus.Canceled)
+                                    {
+                                        <MudMenuItem OnClick="@(() => SetStatus(a, AppointmentStatus.Scheduled))">Reinstate</MudMenuItem>
+                                    }
+                                </MudMenu>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</div>
+
+@* ---- Book an appointment ------------------------------------------------------- *@
+<MudDialog @bind-Visible="_bookingOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">Book appointment</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_bookingViolation" />
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <IdSelect TItem="Patient" Items="_patients" Label="Patient"
+                          IdOf="@(p => p.PatientId)" TextOf="@(p => p.FullName)"
+                          Value="_form.PatientId" ValueChanged="SetPatient" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <IdSelect TItem="ServiceType" Items="_services" Label="Service"
+                          IdOf="@(s => s.ServiceTypeId)" TextOf="@(s => $"{s.Name} ({s.RequiredRoomType} room)")"
+                          Value="_form.ServiceTypeId" ValueChanged="SetService" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <IdSelect TItem="Location" Items="_locations" Label="Location"
+                          IdOf="@(l => l.LocationId)" TextOf="@(l => l.ShortName)"
+                          Value="_form.LocationId" ValueChanged="SetFormLocation" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <IdSelect TItem="Room" Items="FormRooms" Label="Room"
+                          IdOf="@(r => r.RoomId)" TextOf="@(r => $"{r.RoomName} · {r.RoomType}, holds {r.Capacity}{(r.IsActive ? "" : " (inactive)")}")"
+                          @bind-Value="_form.RoomId" />
+            </MudItem>
+            <MudItem xs="12">
+                <IdSelect TItem="Provider" Items="_providers" Label="Provider"
+                          IdOf="@(p => p.EmployeeId)" TextOf="@(p => p.DisplayName)"
+                          @bind-Value="_form.ProviderId" />
+            </MudItem>
+            <MudItem xs="12" sm="5">
+                <MudDatePicker @bind-Date="_form.Date" Label="Date" DateFormat="ddd, MMM d, yyyy"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6" sm="4">
+                <MudSelect T="TimeSpan" @bind-Value="_form.Start" Label="Starts" ToStringFunc="@(t => Slots.Label(t))"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                    @foreach (var time in Slots.StartTimes)
+                    {
+                        <MudSelectItem T="TimeSpan" Value="time">@Slots.Label(time)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudSelect T="int" @bind-Value="_form.Minutes" Label="Length" ToStringFunc="@(m => Slots.LengthLabel(m))"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                    @foreach (var minutes in Slots.LengthsInMinutes)
+                    {
+                        <MudSelectItem T="int" Value="minutes">@Slots.LengthLabel(minutes)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            @if (_patientPlanItems.Count > 0)
+            {
+                <MudItem xs="12">
+                    <IdSelect TItem="TreatmentPlanItem" Items="_patientPlanItems" Label="Counts toward treatment plan (optional)" Clearable="true"
+                              IdOf="@(i => i.PlanItemId)" TextOf="@PlanItemLabel"
+                              @bind-Value="_form.PlanItemId" />
+                </MudItem>
+            }
+            <MudItem xs="12">
+                <MudTextField T="string" @bind-Value="_form.Notes" Label="Notes (optional)" Lines="2"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _bookingOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+                   Disabled="@(!_form.IsComplete || _saving)" OnClick="SaveBooking">Book appointment</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@* ---- Reason for a cancellation -------------------------------------------------- *@
+<MudDialog @bind-Visible="_reasonOpen" Options="_dialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@(_reasonIsClinic ? "Cancel appointment" : "Patient cancellation request")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_reasonViolation" />
+        @if (_reasonFor is not null)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">
+                @_reasonFor.Patient.FullName, @_reasonFor.ServiceType.Name, @_reasonFor.StartTime.ToString("ddd MMM d 'at' h:mm tt").
+                @(_reasonIsClinic
+                    ? "A clinic cancellation is approved at once and cancels the visit."
+                    : "The request goes to the staff queue; the visit stays booked until someone approves it.")
+            </MudText>
+        }
+        <MudTextField T="string" @bind-Value="_reason" Label="Reason" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Immediate="true" AutoFocus="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _reasonOpen = false)">Keep appointment</MudButton>
+        <MudButton Variant="Variant.Filled" Color="@(_reasonIsClinic ? Color.Error : Color.Primary)" DropShadow="false"
+                   Disabled="@(string.IsNullOrWhiteSpace(_reason) || _saving)" OnClick="SubmitReason">
+            @(_reasonIsClinic ? "Cancel appointment" : "Send request")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+<style>
+    .location-filter { min-width: 220px; max-width: 260px; }
+</style>
+
+@code {
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+
+    private DateTime _today = DateTime.Today;
+    private DateTime? _date = DateTime.Today;
+    private int? _locationId;
+    private List<Appointment>? _appointments;
+    private int _loadNumber;
+    private DbRuleViolation? _rowViolation;
+
+    private List<Location> _locations = [];
+    private List<Room> _rooms = [];
+    private List<Patient> _patients = [];
+    private List<Provider> _providers = [];
+    private List<ServiceType> _services = [];
+
+    private bool _bookingOpen, _saving;
+    private BookingForm _form = new();
+    private DbRuleViolation? _bookingViolation;
+    private List<TreatmentPlanItem> _patientPlanItems = [];
+
+    private bool _reasonOpen, _reasonIsClinic;
+    private Appointment? _reasonFor;
+    private string _reason = "";
+    private DbRuleViolation? _reasonViolation;
+
+    private IEnumerable<Room> FormRooms => _rooms.Where(r => r.LocationId == _form.LocationId);
+
+    private sealed class BookingForm
+    {
+        public int? PatientId, ServiceTypeId, LocationId, RoomId, ProviderId, PlanItemId;
+        public DateTime? Date;
+        public TimeSpan Start = TimeSpan.FromHours(9);
+        public int Minutes = 30;
+        public string? Notes;
+        public bool IsComplete => PatientId is not null && ServiceTypeId is not null && RoomId is not null
+                                  && ProviderId is not null && Date is not null;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _today = (await Catalog.ClinicTodayAsync()).ToDateTime(TimeOnly.MinValue);
+        _date = _today;
+
+        await using (var db = await Clinic.OpenAsync())
+        {
+            _locations = await db.Locations.OrderBy(l => l.LocationId).ToListAsync();
+            _rooms = await db.Rooms.OrderBy(r => r.RoomId).ToListAsync();
+            _patients = await db.Patients.Where(p => p.IsActive).OrderBy(p => p.LastName).ThenBy(p => p.FirstName).ToListAsync();
+            _providers = await db.Providers.Include(p => p.Employee).Where(p => p.Employee.IsActive)
+                .OrderBy(p => p.Employee.LastName).ToListAsync();
+            _services = await db.ServiceTypes.Where(s => s.IsActive).OrderBy(s => s.ServiceTypeId).ToListAsync();
+        }
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (_date is not { } day) return;
+        var start = day.Date;
+        var end = start.AddDays(1);
+        var locationId = _locationId;
+
+        // Clicking through days quickly starts several loads; only the newest may set the list
+        var load = ++_loadNumber;
+
+        await using var db = await Clinic.OpenAsync();
+        var appointments = await db.Appointments
+            .Include(a => a.Patient).Include(a => a.ServiceType)
+            .Include(a => a.Provider).ThenInclude(p => p.Employee)
+            .Include(a => a.Room).ThenInclude(r => r.Location)
+            .Where(a => a.StartTime >= start && a.StartTime < end)
+            .Where(a => locationId == null || a.Room.LocationId == locationId)
+            .OrderBy(a => a.StartTime).ThenBy(a => a.Room.LocationId).ThenBy(a => a.RoomId)
+            .ToListAsync();
+        if (load == _loadNumber) _appointments = appointments;
+    }
+
+    private async Task SetDate(DateTime? date)
+    {
+        _date = date ?? _today;
+        _rowViolation = null;
+        await LoadAsync();
+    }
+
+    private Task ShiftDay(int days) => SetDate((_date ?? _today).AddDays(days));
+
+    private async Task SetLocation(int? locationId)
+    {
+        _locationId = locationId;
+        await LoadAsync();
+    }
+
+    // ---- Row actions ---------------------------------------------------------------
+
+    private async Task SetStatus(Appointment appointment, AppointmentStatus status)
+    {
+        var result = await Scheduling.SetStatusAsync(appointment.AppointmentId, status);
+        _rowViolation = result.Violation;
+        if (result.Succeeded) Snackbar.Add($"{appointment.Patient.FullName}: {status}", Severity.Success);
+        await LoadAsync();
+    }
+
+    private async Task Reschedule(Appointment appointment)
+    {
+        var result = await Scheduling.RescheduleMissedAsync(appointment.AppointmentId);
+        _rowViolation = result.Violation;
+        if (result.Succeeded)
+        {
+            await using var db = await Clinic.OpenAsync();
+            var created = await db.Appointments.SingleAsync(a => a.AppointmentId == result.Id);
+            Snackbar.Add($"Rescheduled {appointment.Patient.FullName} to {created.StartTime:ddd MMM d 'at' h:mm tt}", Severity.Success);
+        }
+        await LoadAsync();
+    }
+
+    private void AskReason(Appointment appointment, bool clinic)
+    {
+        _reasonFor = appointment;
+        _reasonIsClinic = clinic;
+        _reason = "";
+        _reasonViolation = null;
+        _reasonOpen = true;
+    }
+
+    private async Task SubmitReason()
+    {
+        if (_reasonFor is null) return;
+        _saving = true;
+        var result = _reasonIsClinic
+            ? await Scheduling.ClinicCancelAsync(_reasonFor.AppointmentId, _reason.Trim())
+            : await Scheduling.PatientCancelRequestAsync(_reasonFor.AppointmentId, _reason.Trim());
+        _saving = false;
+        _reasonViolation = result.Violation;
+        if (!result.Succeeded) return;
+
+        _reasonOpen = false;
+        Snackbar.Add(_reasonIsClinic ? "Appointment canceled" : "Cancellation request sent to the queue", Severity.Success);
+        await LoadAsync();
+    }
+
+    // ---- Booking form --------------------------------------------------------------
+
+    private void OpenBooking()
+    {
+        _form = new BookingForm { Date = _date, LocationId = _locationId ?? _locations.FirstOrDefault()?.LocationId };
+        _patientPlanItems = [];
+        _bookingViolation = null;
+        _bookingOpen = true;
+    }
+
+    private async Task SetPatient(int? patientId)
+    {
+        _form.PatientId = patientId;
+        _form.PlanItemId = null;
+        await using var db = await Clinic.OpenAsync();
+        _patientPlanItems = await db.TreatmentPlanItems
+            .Include(i => i.ServiceType).Include(i => i.Medication)
+            .Where(i => i.Plan.PatientId == patientId && i.Plan.Status == PlanStatus.Active)
+            .OrderBy(i => i.PlanItemId)
+            .ToListAsync();
+    }
+
+    private void SetService(int? serviceTypeId)
+    {
+        _form.ServiceTypeId = serviceTypeId;
+        // Start from the service's default length; the visit keeps its own end time
+        if (_services.FirstOrDefault(s => s.ServiceTypeId == serviceTypeId) is { } service)
+            _form.Minutes = service.DefaultDurationMin;
+    }
+
+    private void SetFormLocation(int? locationId)
+    {
+        _form.LocationId = locationId;
+        _form.RoomId = null;
+    }
+
+    private static string PlanItemLabel(TreatmentPlanItem item) =>
+        $"{item.ServiceType.Name}{(item.Medication is null ? "" : $" · {item.Medication.GenericName}")} every {item.IntervalWeeks} weeks";
+
+    private async Task SaveBooking()
+    {
+        if (!_form.IsComplete) return;
+        var start = _form.Date!.Value.Date + _form.Start;
+
+        _saving = true;
+        var result = await Scheduling.BookAsync(new BookingRequest(
+            _form.PatientId!.Value, _form.ProviderId!.Value, _form.RoomId!.Value, _form.ServiceTypeId!.Value,
+            _form.PlanItemId, start, start.AddMinutes(_form.Minutes), _form.Notes));
+        _saving = false;
+
+        _bookingViolation = result.Violation;
+        if (!result.Succeeded) return;
+
+        _bookingOpen = false;
+        Snackbar.Add($"Booked for {start:ddd MMM d 'at' h:mm tt}", Severity.Success);
+        await SetDate(start.Date);
+    }
+}

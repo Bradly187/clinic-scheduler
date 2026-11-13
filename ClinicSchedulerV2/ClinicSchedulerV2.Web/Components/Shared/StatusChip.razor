@@ -1,0 +1,15 @@
+@* One look for every status value across the app. *@
+<MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Tone" Class="ma-0">@Text</MudChip>
+
+@code {
+    [Parameter, EditorRequired] public string Text { get; set; } = "";
+
+    private Color Tone => Text switch
+    {
+        "Scheduled" or "Pending" or "Active" => Color.Info,
+        "Completed" or "Approved" or "INSERT" => Color.Success,
+        "Missed" or "UPDATE" => Color.Warning,
+        "Canceled" or "Denied" or "Discontinued" or "DELETE" or "Inactive" => Color.Error,
+        _ => Color.Default,
+    };
+}
