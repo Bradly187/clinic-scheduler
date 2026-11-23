@@ -3,13 +3,17 @@ using Npgsql;
 namespace ClinicSchedulerV2.Data.Database;
 
 /// <summary>
-/// Creates the database on first run by applying the SQL scripts. It only ever acts on a
-/// database that does not exist yet or has no tables from this schema; it never alters or
-/// drops an existing one.
+/// Brings a database up to date with the SQL scripts: creates it if it does not exist, then
+/// applies every script the journal has not recorded yet. It never re-runs a script and never
+/// drops anything.
 /// </summary>
 public static class DatabaseBootstrapper
 {
-    /// <returns>The scripts applied, or an empty list when the schema was already there.</returns>
+    /// <param name="includeSampleData">
+    /// Whether sample-data scripts may run. They only run on a database that received the base
+    /// sample data, so they never reference rows that are not there.
+    /// </param>
+    /// <returns>The scripts applied in this run; empty when the database was already up to date.</returns>
     public static async Task<IReadOnlyList<string>> EnsureCreatedAsync(
         string connectionString, bool includeSampleData, CancellationToken ct = default)
     {
@@ -32,16 +36,20 @@ public static class DatabaseBootstrapper
             }
         }
 
+        bool freshSchema;
         await using (var database = new NpgsqlConnection(connectionString))
         {
             await database.OpenAsync(ct);
-            await using var hasSchema = new NpgsqlCommand("SELECT to_regclass('public.appointment') IS NOT NULL", database);
-            if (await hasSchema.ExecuteScalarAsync(ct) is true) return [];
+            await using var hasSchema = new NpgsqlCommand("SELECT to_regclass('public.appointment') IS NULL", database);
+            freshSchema = await hasSchema.ExecuteScalarAsync(ct) is true;
         }
 
         return await SqlScriptRunner.ApplyAllAsync(
             connectionString,
-            include: name => includeSampleData || !name.Contains("sample_data", StringComparison.OrdinalIgnoreCase),
+            include: (name, applied) => !SqlScriptRunner.IsSampleData(name) || (includeSampleData && (
+                // The base sample data only goes into a brand-new database ...
+                freshSchema || applied.Any(SqlScriptRunner.IsSampleData))),
+            // ... and later sample-data scripts only where earlier sample data exists
             ct: ct);
     }
 }

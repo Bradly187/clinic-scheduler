@@ -101,3 +101,160 @@ h1:focus {
 .blazor-error-boundary::after {
     content: "An error has occurred.";
 }
+
+/* ---- Sign-in (static page, plain HTML form) ---- */
+.auth-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f5f7f7;
+    padding: 24px 16px;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 420px;
+    background: #fff;
+    border: 1px solid #dfe6e6;
+    border-radius: 12px;
+    padding: 28px 28px 24px;
+}
+
+.auth-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.auth-mark {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: #0c4f52;
+    color: #fff;
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+}
+
+.auth-title { font-weight: 700; font-size: 1.1rem; color: #16282b; }
+.auth-sub { font-size: 0.85rem; color: #55696c; }
+.auth-heading { font-size: 1.4rem; font-weight: 600; margin: 0 0 16px; color: #16282b; }
+
+.auth-form { display: flex; flex-direction: column; gap: 6px; }
+.auth-form label { font-size: 0.85rem; font-weight: 500; color: #16282b; margin-top: 8px; }
+.auth-form input {
+    font: inherit;
+    padding: 10px 12px;
+    border: 1px solid #c9d4d4;
+    border-radius: 8px;
+    outline: none;
+}
+.auth-form input:focus { border-color: #0f6e6e; box-shadow: 0 0 0 3px rgba(15, 110, 110, 0.15); }
+.auth-form button {
+    margin-top: 18px;
+    font: inherit;
+    font-weight: 600;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: #0f6e6e;
+    color: #fff;
+    cursor: pointer;
+}
+.auth-form button:hover { background: #0c5a5a; }
+
+.auth-error {
+    background: #fdecea;
+    color: #8c1d18;
+    border: 1px solid #f5c2bd;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 0.9rem;
+    margin-bottom: 12px;
+}
+
+.auth-demo {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid #dfe6e6;
+    font-size: 0.85rem;
+    color: #55696c;
+}
+.auth-demo-title { font-weight: 600; color: #16282b; margin-bottom: 6px; }
+.auth-demo table { border-collapse: collapse; width: 100%; }
+.auth-demo td { padding: 2px 8px 2px 0; }
+.auth-demo-note { margin-top: 8px; }
+
+/* ---- Calendar ---- */
+.cal {
+    display: grid;
+    grid-template-columns: 56px repeat(var(--days), minmax(140px, 1fr));
+    overflow-x: auto;
+}
+.cal-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--mud-palette-surface);
+    border-bottom: 1px solid var(--mud-palette-divider);
+    padding: 8px 6px;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+.cal-head.today { color: var(--mud-palette-primary); }
+.cal-times { position: relative; }
+.cal-time {
+    height: var(--slot);
+    font-size: 0.72rem;
+    color: var(--mud-palette-text-secondary);
+    text-align: right;
+    padding-right: 6px;
+    transform: translateY(-0.5em);
+}
+.cal-day {
+    position: relative;
+    border-left: 1px solid var(--mud-palette-divider);
+    background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--slot) - 1px), var(--mud-palette-table-lines) calc(var(--slot) - 1px), var(--mud-palette-table-lines) var(--slot));
+}
+.cal-event {
+    position: absolute;
+    border-radius: 6px;
+    padding: 3px 6px;
+    font-size: 0.72rem;
+    line-height: 1.25;
+    overflow: hidden;
+    cursor: pointer;
+    border-left: 3px solid rgba(0, 0, 0, 0.25);
+    color: #10282a;
+}
+.cal-event:hover { filter: brightness(0.96); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
+.cal-event .t { font-weight: 600; }
+.cal-event.missed { opacity: 0.6; text-decoration: line-through; }
+.cal-event.completed { opacity: 0.75; }
+.cal-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.8rem; color: var(--mud-palette-text-secondary); }
+.cal-legend span::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    margin-right: 6px;
+    background: var(--swatch);
+    vertical-align: -1px;
+}
+
+/* ---- Invoices and superbill ---- */
+.money { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.totals { margin-left: auto; min-width: 260px; }
+.totals td { padding: 4px 0 4px 24px; }
+.totals tr.grand td { font-weight: 700; border-top: 1px solid var(--mud-palette-divider); }
+.note-body { white-space: pre-wrap; }
+
+@media print {
+    .app-bar, .app-drawer, .no-print, .mud-snackbar-location-bottom-right { display: none !important; }
+    .mud-main-content { padding: 0 !important; margin: 0 !important; }
+    .panel { border: 0; }
+}

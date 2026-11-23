@@ -1,4 +1,6 @@
 using ClinicSchedulerV2.Data.Model;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure;
 using Npgsql.NameTranslation;
@@ -6,10 +8,12 @@ using Npgsql.NameTranslation;
 namespace ClinicSchedulerV2.Data;
 
 /// <summary>
-/// Maps the row classes onto the tables created by db/postgres/01_schema.sql. There are no EF
+/// Maps the row classes onto the tables created by db/postgres/*.sql. There are no EF
 /// migrations: the SQL scripts own the schema, and this context only reads and writes rows.
+/// It derives from Identity's user context so sign-in uses the same database and the same
+/// rules (app_user and its side tables are created by 04_accounts.sql).
 /// </summary>
-public class ClinicDbContext(DbContextOptions<ClinicDbContext> options) : DbContext(options)
+public class ClinicDbContext(DbContextOptions<ClinicDbContext> options) : IdentityUserContext<AppUser, int>(options)
 {
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<Room> Rooms => Set<Room>();
@@ -26,6 +30,16 @@ public class ClinicDbContext(DbContextOptions<ClinicDbContext> options) : DbCont
     public DbSet<AppointmentRequest> AppointmentRequests => Set<AppointmentRequest>();
     public DbSet<CancellationRequest> CancellationRequests => Set<CancellationRequest>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
+    public DbSet<Invoice> Invoices => Set<Invoice>();
+    public DbSet<InvoiceLine> InvoiceLines => Set<InvoiceLine>();
+    public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<InsurancePolicy> InsurancePolicies => Set<InsurancePolicy>();
+    public DbSet<WaitlistEntry> Waitlist => Set<WaitlistEntry>();
+    public DbSet<VisitNote> VisitNotes => Set<VisitNote>();
+    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<InvoiceSummary> InvoiceSummaries => Set<InvoiceSummary>();
+    public DbSet<PatientBalance> PatientBalances => Set<PatientBalance>();
+    public DbSet<SuperbillLine> Superbill => Set<SuperbillLine>();
 
     /// <summary>Provider, naming and enum settings shared by the app and the tests.</summary>
     public static void Configure(DbContextOptionsBuilder builder, string connectionString) =>
@@ -46,6 +60,10 @@ public class ClinicDbContext(DbContextOptions<ClinicDbContext> options) : DbCont
         npgsql.MapEnum<RequestStatus>("request_status", nameTranslator: asWritten);
         npgsql.MapEnum<CancelSource>("cancel_source", nameTranslator: asWritten);
         npgsql.MapEnum<AuditAction>("audit_action", nameTranslator: asWritten);
+        npgsql.MapEnum<InvoiceStatus>("invoice_status", nameTranslator: asWritten);
+        npgsql.MapEnum<PaymentMethod>("payment_method", nameTranslator: asWritten);
+        npgsql.MapEnum<WaitlistStatus>("waitlist_status", nameTranslator: asWritten);
+        npgsql.MapEnum<NotificationKind>("notification_kind", nameTranslator: asWritten);
     }
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configuration)
@@ -56,6 +74,20 @@ public class ClinicDbContext(DbContextOptions<ClinicDbContext> options) : DbCont
 
     protected override void OnModelCreating(ModelBuilder model)
     {
+        base.OnModelCreating(model);
+
+        // Identity's tables, under the names 04_accounts.sql gives them
+        model.Entity<AppUser>(e =>
+        {
+            e.ToTable("app_user");
+            e.HasOne(x => x.Employee).WithOne().HasForeignKey<AppUser>(x => x.EmployeeId);
+            e.HasOne(x => x.Patient).WithOne().HasForeignKey<AppUser>(x => x.PatientId);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("clinic_now()");
+        });
+        model.Entity<IdentityUserClaim<int>>().ToTable("app_user_claim");
+        model.Entity<IdentityUserLogin<int>>().ToTable("app_user_login");
+        model.Entity<IdentityUserToken<int>>().ToTable("app_user_token");
+
         model.Entity<Location>(e =>
         {
             e.ToTable("location").HasKey(x => x.LocationId);
@@ -169,5 +201,56 @@ public class ClinicDbContext(DbContextOptions<ClinicDbContext> options) : DbCont
             e.Property(x => x.NewValues).HasColumnType("jsonb");
             e.HasOne(x => x.ChangedByEmployee).WithMany().HasForeignKey(x => x.ChangedBy);
         });
+
+        // ---- Billing (05_billing.sql) ----
+        model.Entity<Invoice>(e =>
+        {
+            e.ToTable("invoice").HasKey(x => x.InvoiceId);
+            e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId);
+            e.HasMany(x => x.Lines).WithOne().HasForeignKey(l => l.InvoiceId);
+            e.HasMany(x => x.Payments).WithOne().HasForeignKey(p => p.InvoiceId);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("clinic_now()");
+        });
+        model.Entity<InvoiceLine>(e =>
+        {
+            e.ToTable("invoice_line").HasKey(x => x.LineId);
+            e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId);
+            e.Property(x => x.Amount).ValueGeneratedOnAddOrUpdate();
+        });
+        model.Entity<Payment>(e =>
+        {
+            e.ToTable("payment").HasKey(x => x.PaymentId);
+            e.HasOne(x => x.RecordedByEmployee).WithMany().HasForeignKey(x => x.RecordedBy);
+            e.Property(x => x.PaidAt).HasDefaultValueSql("clinic_now()");
+        });
+        model.Entity<InsurancePolicy>(e => e.ToTable("insurance_policy").HasKey(x => x.PolicyId));
+
+        // ---- Waitlist, notes, notifications (06_care.sql) ----
+        model.Entity<WaitlistEntry>(e =>
+        {
+            e.ToTable("waitlist_entry").HasKey(x => x.EntryId);
+            e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId);
+            e.HasOne(x => x.ServiceType).WithMany().HasForeignKey(x => x.ServiceTypeId);
+            e.HasOne(x => x.PreferredLocation).WithMany().HasForeignKey(x => x.PreferredLocationId);
+            e.HasOne(x => x.PreferredProvider).WithMany().HasForeignKey(x => x.PreferredProviderId);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("clinic_now()");
+        });
+        model.Entity<VisitNote>(e =>
+        {
+            e.ToTable("visit_note").HasKey(x => x.NoteId);
+            e.HasOne(x => x.Appointment).WithMany().HasForeignKey(x => x.AppointmentId);
+            e.HasOne(x => x.Author).WithMany().HasForeignKey(x => x.AuthorId);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("clinic_now()");
+        });
+        model.Entity<Notification>(e =>
+        {
+            e.ToTable("notification").HasKey(x => x.NotificationId);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("clinic_now()");
+        });
+
+        // ---- Read-only views ----
+        model.Entity<InvoiceSummary>(e => e.ToView("vw_invoice_summary").HasNoKey());
+        model.Entity<PatientBalance>(e => e.ToView("vw_patient_balance").HasNoKey());
+        model.Entity<SuperbillLine>(e => e.ToView("vw_superbill").HasNoKey());
     }
 }

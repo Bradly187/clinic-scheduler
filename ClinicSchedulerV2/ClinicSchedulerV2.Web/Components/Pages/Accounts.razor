@@ -1,0 +1,144 @@
+@page "/accounts"
+@attribute [Authorize(Roles = Roles.Manager)]
+@inject ClinicDb Clinic
+@inject UserManager<AppUser> Users
+@inject ISnackbar Snackbar
+
+<PageTitle>Accounts · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Accounts</MudText>
+        <MudText Typo="Typo.body2" Class="lead">
+            Each person can have one login. Deactivating someone in the clinic directory or patient list locks their
+            account in the database; reactivating unlocks it.
+        </MudText>
+    </div>
+</div>
+
+<RuleAlert Violation="_violation" />
+@if (_errors is not null)
+{
+    <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@_errors</MudAlert>
+}
+
+<MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pt-4">
+    <MudTabPanel Text="@($"Clinic team ({_employees.Count})")">
+        <div class="panel"><PeopleTable Rows="_employees" OnCreate="OpenCreate" OnReset="OpenReset" OnUnlock="Unlock" /></div>
+    </MudTabPanel>
+    <MudTabPanel Text="@($"Patients ({_patients.Count})")">
+        <div class="panel"><PeopleTable Rows="_patients" OnCreate="OpenCreate" OnReset="OpenReset" OnUnlock="Unlock" /></div>
+    </MudTabPanel>
+</MudTabs>
+
+<MudDialog @bind-Visible="_dialogOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">@(_resetting ? "Reset password" : "Create account") · @_person?.Name</MudText></TitleContent>
+    <DialogContent>
+        @if (!_resetting)
+        {
+            <MudTextField T="string" @bind-Value="_userName" Label="User name" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" />
+        }
+        <MudTextField T="string" @bind-Value="_password" Label="Temporary password (10+ characters, upper and lower case, a digit and a symbol)"
+                      InputType="InputType.Password" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudText Typo="Typo.caption" Class="muted">Give it to the person in person or by phone; there is no email in this system.</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _dialogOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+                   Disabled="@(string.IsNullOrWhiteSpace(_password) || (!_resetting && string.IsNullOrWhiteSpace(_userName)))"
+                   OnClick="Submit">@(_resetting ? "Reset" : "Create")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true, CloseOnEscapeKey = true };
+
+    public sealed record PersonRow(int? EmployeeId, int? PatientId, string Name, string Role, bool Active, string? Email, AppUser? Account);
+
+    private List<PersonRow> _employees = [], _patients = [];
+    private DbRuleViolation? _violation;
+    private string? _errors;
+
+    private bool _dialogOpen, _resetting;
+    private PersonRow? _person;
+    private string? _userName, _password;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await Clinic.OpenAsync();
+        var accounts = await db.Users.AsNoTracking().ToListAsync();
+        var employees = await db.Employees.Include(e => e.Staff).Include(e => e.Provider).OrderBy(e => e.LastName).ToListAsync();
+        _employees = employees.Select(e => new PersonRow(e.EmployeeId, null, e.FullName,
+            e.Provider is { } p ? $"Provider · {p.Credential}" : $"Staff · {e.Staff?.JobTitle}", e.IsActive, e.Email,
+            accounts.FirstOrDefault(a => a.EmployeeId == e.EmployeeId))).ToList();
+        var patients = await db.Patients.OrderBy(p => p.LastName).ThenBy(p => p.FirstName).ToListAsync();
+        _patients = patients.Select(p => new PersonRow(null, p.PatientId, p.FullName, "Patient", p.IsActive, p.Email,
+            accounts.FirstOrDefault(a => a.PatientId == p.PatientId))).ToList();
+    }
+
+    private void OpenCreate(PersonRow person)
+    {
+        _person = person;
+        _resetting = false;
+        _userName = person.Email?.Split('@')[0].Replace(".", "").ToLowerInvariant();
+        _password = null;
+        _dialogOpen = true;
+    }
+
+    private void OpenReset(PersonRow person)
+    {
+        _person = person;
+        _resetting = true;
+        _password = null;
+        _dialogOpen = true;
+    }
+
+    private async Task Submit()
+    {
+        if (_person is null || _password is null) return;
+        _violation = null;
+        _errors = null;
+        try
+        {
+            IdentityResult result;
+            if (_resetting)
+            {
+                var user = await Users.FindByIdAsync(_person.Account!.Id.ToString());
+                var token = await Users.GeneratePasswordResetTokenAsync(user!);
+                result = await Users.ResetPasswordAsync(user!, token, _password);
+            }
+            else
+            {
+                result = await Users.CreateAsync(new AppUser
+                {
+                    UserName = _userName!.Trim(), Email = _person.Email, EmployeeId = _person.EmployeeId, PatientId = _person.PatientId,
+                }, _password);
+            }
+            if (!result.Succeeded)
+            {
+                _errors = string.Join(" ", result.Errors.Select(e => e.Description));
+                return;
+            }
+            Snackbar.Add(_resetting ? "Password reset; open sessions end at their next check" : $"Account {_userName} created", Severity.Success);
+            _dialogOpen = false;
+        }
+        catch (Exception ex) when (DbRuleViolation.From(ex) is { } violation)
+        {
+            // e.g. an inactive person, or one who already has an account: the database's rules
+            _violation = violation;
+            _dialogOpen = false;
+        }
+        await LoadAsync();
+    }
+
+    private async Task Unlock(PersonRow person)
+    {
+        var user = await Users.FindByIdAsync(person.Account!.Id.ToString());
+        await Users.SetLockoutEndDateAsync(user!, null);
+        await Users.ResetAccessFailedCountAsync(user!);
+        Snackbar.Add($"{person.Name} unlocked", Severity.Success);
+        await LoadAsync();
+    }
+}

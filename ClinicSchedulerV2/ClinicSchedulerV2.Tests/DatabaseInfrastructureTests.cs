@@ -32,6 +32,52 @@ public class DatabaseInfrastructureTests(PostgresFixture db) : IClassFixture<Pos
     }
 
     [Fact]
+    public async Task Each_script_runs_once_so_a_second_run_applies_nothing()
+    {
+        Assert.Empty(await SqlScriptRunner.ApplyAllAsync(db.ConnectionString));
+    }
+
+    [Fact]
+    public async Task A_database_from_before_the_journal_gets_only_the_scripts_added_since()
+    {
+        var name = $"clinic_v2_test_prejournal_{Guid.NewGuid():N}";
+        var admin = new NpgsqlConnectionStringBuilder(db.ConnectionString) { Database = "postgres" }.ConnectionString;
+        var target = new NpgsqlConnectionStringBuilder(db.ConnectionString) { Database = name }.ConnectionString;
+        var oldScripts = Directory.CreateTempSubdirectory("clinic_v2_old").FullName;
+        try
+        {
+            await using (var server = new NpgsqlConnection(admin))
+            {
+                await server.OpenAsync();
+                await using var create = new NpgsqlCommand($"CREATE DATABASE \"{name}\"", server);
+                await create.ExecuteNonQueryAsync();
+            }
+
+            // Build it the way the first release did: scripts 01-03, then no journal
+            foreach (var script in new[] { "01_schema.sql", "02_rules.sql", "03_sample_data.sql" })
+                File.Copy(Path.Combine(SqlScriptRunner.DefaultScriptDirectory, script), Path.Combine(oldScripts, script));
+            await SqlScriptRunner.ApplyAllAsync(target, oldScripts);
+            await using (var connection = new NpgsqlConnection(target))
+            {
+                await connection.OpenAsync();
+                await using var drop = new NpgsqlCommand("DROP TABLE schema_script", connection);
+                await drop.ExecuteNonQueryAsync();
+            }
+
+            var applied = await DatabaseBootstrapper.EnsureCreatedAsync(target, includeSampleData: true);
+            Assert.Equal(["04_accounts.sql", "05_billing.sql", "06_care.sql", "07_sample_data_extended.sql"], applied);
+        }
+        finally
+        {
+            Directory.Delete(oldScripts, recursive: true);
+            await using var server = new NpgsqlConnection(admin);
+            await server.OpenAsync();
+            await using var drop = new NpgsqlCommand($"DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)", server);
+            await drop.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
     public async Task Rejected_writes_are_reported_by_rule_kind_and_constraint_name()
     {
         await using var connection = await db.OpenAsync();

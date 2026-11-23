@@ -44,6 +44,44 @@ jobs:
       - name: Run integration tests
         run: dotnet test ClinicScheduler/ClinicScheduler.Web.Tests -c Release --no-build --verbosity normal
 
+  # ClinicSchedulerV2 keeps its rules in PostgreSQL (constraints, triggers, routines), so its
+  # tests need a real server. Each test class creates its own throwaway database on this one.
+  # The deploy job below ships the original app only and does not depend on this job.
+  v2-build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres # throwaway container, reachable only from this job
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CLINIC_V2_TEST_SERVER: Host=localhost;Port=5432;Username=postgres;Password=postgres
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: preview
+
+      - name: Restore dependencies
+        run: dotnet restore ClinicSchedulerV2/ClinicSchedulerV2.slnx
+
+      - name: Build
+        run: dotnet build ClinicSchedulerV2/ClinicSchedulerV2.slnx -c Release --no-restore
+
+      - name: Run database rule and application tests
+        run: dotnet test ClinicSchedulerV2/ClinicSchedulerV2.Tests -c Release --no-build --verbosity normal
+
   deploy:
     needs: build-and-test
     runs-on: ubuntu-latest

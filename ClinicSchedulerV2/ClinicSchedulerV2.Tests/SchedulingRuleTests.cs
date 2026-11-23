@@ -15,7 +15,10 @@ public class SchedulingRuleTests(PostgresFixture db) : IClassFixture<PostgresFix
     [Fact]
     public void Sample_data_loads_with_every_rule_active()
     {
-        Assert.Equal(["01_schema.sql", "02_rules.sql", "03_sample_data.sql"], db.AppliedScripts);
+        Assert.Equal(
+            ["01_schema.sql", "02_rules.sql", "03_sample_data.sql", "04_accounts.sql", "05_billing.sql",
+             "06_care.sql", "07_sample_data_extended.sql"],
+            db.AppliedScripts);
     }
 
     // ---- Scheduling rules (trg_appointment_before_insert) ------------------------------

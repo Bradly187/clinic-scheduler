@@ -1,0 +1,90 @@
+@page "/superbill/{InvoiceId:int}"
+@attribute [Authorize(Roles = "Staff,Patient")]
+@inject ClinicDb Clinic
+@inject IJSRuntime JS
+
+<PageTitle>Superbill · Invoice @InvoiceId</PageTitle>
+
+@if (_lines is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_lines.Count == 0)
+{
+    <MudText Typo="Typo.body1" Class="muted">There is no superbill for this invoice: it has no billed visits, or it isn't yours.</MudText>
+}
+else
+{
+    var first = _lines[0];
+    <div class="page-head no-print">
+        <MudButton StartIcon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Href="@BackUrl">Back to invoice</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" StartIcon="@Icons.Material.Outlined.Print"
+                   OnClick="@(() => JS.InvokeVoidAsync("print"))">Print</MudButton>
+    </div>
+
+    <div class="panel pa-6">
+        <MudText Typo="Typo.h5">Superbill</MudText>
+        <MudText Typo="Typo.body2" Class="muted mb-4">Statement of services for insurance reimbursement · Invoice #@InvoiceId</MudText>
+
+        <MudGrid Spacing="4" Class="mb-2">
+            <MudItem xs="12" sm="6">
+                <MudText Typo="Typo.caption" Class="muted">Patient</MudText>
+                <MudText>@first.Patient</MudText>
+                <MudText Typo="Typo.body2">Date of birth @first.DateOfBirth.ToString("MM/dd/yyyy")</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudText Typo="Typo.caption" Class="muted">Insurance</MudText>
+                @if (first.PayerName is null)
+                {
+                    <MudText Typo="Typo.body2">No active primary policy on file</MudText>
+                }
+                else
+                {
+                    <MudText>@first.PayerName</MudText>
+                    <MudText Typo="Typo.body2">Member @first.MemberId@(first.GroupNumber is null ? "" : $" · Group {first.GroupNumber}")</MudText>
+                }
+            </MudItem>
+        </MudGrid>
+
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead><tr><th>Date</th><th>Provider</th><th>NPI</th><th>Location</th><th>Code</th><th>Service</th><th class="money">Charge</th></tr></thead>
+            <tbody>
+                @foreach (var line in _lines)
+                {
+                    <tr>
+                        <td>@line.ServiceDate.ToString("MM/dd/yyyy")</td>
+                        <td>@line.Provider, @line.Credential</td>
+                        <td class="mono">@line.Npi</td>
+                        <td>@line.Location<br /><span class="muted">@line.LocationAddress</span></td>
+                        <td class="mono">@line.BillingCode</td>
+                        <td>@line.Description</td>
+                        <td class="money">@Formats.Money(line.Amount)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        <div class="d-flex pa-4">
+            <table class="totals"><tr class="grand"><td>Total charges</td><td class="money">@Formats.Money(_lines.Sum(l => l.Amount))</td></tr></table>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int InvoiceId { get; set; }
+
+    private List<SuperbillLine>? _lines;
+    private bool _isPatient;
+
+    private string BackUrl => _isPatient ? $"/my-invoices/{InvoiceId}" : $"/billing/{InvoiceId}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var actor = await Clinic.ActorAsync();
+        _isPatient = actor.IsPatient;
+        await using var db = await Clinic.OpenAsync();
+        _lines = await db.Superbill
+            .Where(l => l.InvoiceId == InvoiceId && (actor.PatientId == null || l.PatientId == actor.PatientId))
+            .OrderBy(l => l.ServiceDate).ThenBy(l => l.LineId)
+            .ToListAsync();
+    }
+}

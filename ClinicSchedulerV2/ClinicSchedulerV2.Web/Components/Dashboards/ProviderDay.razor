@@ -1,0 +1,124 @@
+@inject ClinicDb Clinic
+@inject SchedulingService Scheduling
+@inject DatabaseCatalog Catalog
+@inject ISnackbar Snackbar
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">My day</MudText>
+        <MudText Typo="Typo.body2" Class="lead">@_actor?.Name · @_today.ToString("dddd, MMMM d, yyyy")</MudText>
+    </div>
+    <MudButton Href="/calendar" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.CalendarViewWeek">My week</MudButton>
+</div>
+
+<RuleAlert Violation="_violation" />
+
+<MudGrid Spacing="3">
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@_todayVisits.Count(v => v.Status != AppointmentStatus.Canceled)</div><div class="label">Visits today</div></div></MudItem>
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@_todayVisits.Count(v => v.Status == AppointmentStatus.Scheduled)</div><div class="label">Still to see</div></div></MudItem>
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@_unsigned.Count</div><div class="label">Visits without a signed note</div></div></MudItem>
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@_weekAhead</div><div class="label">Booked in the next 7 days</div></div></MudItem>
+
+    <MudItem xs="12" lg="7">
+        <div class="panel">
+            <div class="panel-title">Today</div>
+            @if (_todayVisits.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted pa-4">Nothing on your schedule today.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <tbody>
+                        @foreach (var a in _todayVisits)
+                        {
+                            <tr>
+                                <td class="time-cell">@Slots.Range(a.StartTime, a.EndTime)</td>
+                                <td>@a.Patient.FullName<br /><span class="muted">@a.ServiceType.Name · @a.Room.RoomName, @a.Room.Location.ShortName</span></td>
+                                <td><StatusChip Text="@a.Status.ToString()" /></td>
+                                <td style="text-align: right; white-space: nowrap">
+                                    @if (a.Status == AppointmentStatus.Scheduled)
+                                    {
+                                        <MudButton Size="Size.Small" OnClick="@(() => Complete(a))">Mark seen</MudButton>
+                                    }
+                                    @if (a.Status != AppointmentStatus.Canceled)
+                                    {
+                                        <MudButton Size="Size.Small" Color="Color.Primary" Href="@($"/notes/{a.AppointmentId}")">Notes</MudButton>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </div>
+    </MudItem>
+
+    <MudItem xs="12" lg="5">
+        <div class="panel">
+            <div class="panel-title">Needs a signed note</div>
+            @if (_unsigned.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted pa-4">Every completed visit is documented.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <tbody>
+                        @foreach (var a in _unsigned)
+                        {
+                            <tr>
+                                <td class="time-cell">@a.StartTime.ToString("MMM d")</td>
+                                <td>@a.Patient.FullName<br /><span class="muted">@a.ServiceType.Name</span></td>
+                                <td style="text-align: right"><MudButton Size="Size.Small" Color="Color.Primary" Href="@($"/notes/{a.AppointmentId}")">Write</MudButton></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </div>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private Actor? _actor;
+    private DateTime _today = DateTime.Today;
+    private List<Appointment> _todayVisits = [];
+    private List<Appointment> _unsigned = [];
+    private int _weekAhead;
+    private DbRuleViolation? _violation;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _actor = await Clinic.ActorAsync();
+        _today = (await Catalog.ClinicTodayAsync()).ToDateTime(TimeOnly.MinValue);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var me = _actor?.EmployeeId;
+        var tomorrow = _today.AddDays(1);
+        await using var db = await Clinic.OpenAsync();
+        _todayVisits = await Visits(db).Where(a => a.ProviderId == me && a.StartTime >= _today && a.StartTime < tomorrow)
+            .OrderBy(a => a.StartTime).ToListAsync();
+        _weekAhead = await db.Appointments.CountAsync(a => a.ProviderId == me && a.Status == AppointmentStatus.Scheduled
+                                                         && a.StartTime >= tomorrow && a.StartTime < _today.AddDays(8));
+        var since = _today.AddDays(-90);
+        _unsigned = await Visits(db)
+            .Where(a => a.ProviderId == me && a.Status == AppointmentStatus.Completed && a.StartTime >= since)
+            .Where(a => !db.VisitNotes.Any(n => n.AppointmentId == a.AppointmentId && n.SignedAt != null))
+            .OrderByDescending(a => a.StartTime).Take(15).ToListAsync();
+    }
+
+    private static IQueryable<Appointment> Visits(ClinicDbContext db) => db.Appointments
+        .Include(a => a.Patient).Include(a => a.ServiceType).Include(a => a.Room).ThenInclude(r => r.Location);
+
+    private async Task Complete(Appointment appointment)
+    {
+        var result = await Scheduling.SetStatusAsync(appointment.AppointmentId, AppointmentStatus.Completed);
+        _violation = result.Violation;
+        if (result.Succeeded) Snackbar.Add($"{appointment.Patient.FullName} marked seen", Severity.Success);
+        await LoadAsync();
+    }
+}

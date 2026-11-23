@@ -95,6 +95,7 @@ public class ServiceType
     public string Name { get; set; } = "";
     public short DefaultDurationMin { get; set; }
     public RoomType RequiredRoomType { get; set; }
+    public decimal Fee { get; set; }
     public bool IsActive { get; set; } = true;
 }
 
@@ -221,6 +222,7 @@ public class AuditLogEntry
     public AuditAction Action { get; set; }
     public int? ChangedBy { get; set; }
     public Employee? ChangedByEmployee { get; set; }
+    public int? ChangedByUser { get; set; }
     public DateTime ChangedAt { get; set; }
     public string? OldValues { get; set; }
     public string? NewValues { get; set; }

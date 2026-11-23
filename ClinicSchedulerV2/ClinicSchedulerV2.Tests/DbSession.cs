@@ -30,6 +30,25 @@ public sealed class DbSession : IAsyncDisposable
         return session;
     }
 
+    /// <summary>
+    /// Acts as a login for the rest of the session, the way the app does after sign-in:
+    /// the database derives the employee or patient from it.
+    /// </summary>
+    public async Task ActAsUserAsync(int userId)
+    {
+        await ExecAsync("SELECT set_config('app.current_employee_id', '', false)");
+        await ExecAsync($"SELECT set_config('app.current_user_id', '{userId}', false)");
+    }
+
+    /// <summary>Creates a login for an employee or a patient and returns its id.</summary>
+    public Task<int> CreateUserAsync(string userName, int? employeeId = null, int? patientId = null) =>
+        ScalarAsync<int>(
+            $"""
+            INSERT INTO app_user (user_name, normalized_user_name, employee_id, patient_id)
+            VALUES ('{userName}', upper('{userName}'), {(employeeId?.ToString() ?? "NULL")}, {(patientId?.ToString() ?? "NULL")})
+            RETURNING id
+            """);
+
     public async Task<int> ExecAsync(string sql)
     {
         await using var command = new NpgsqlCommand(sql, _connection, _transaction);

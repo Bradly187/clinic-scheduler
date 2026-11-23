@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ClinicSchedulerV2.Data\ClinicSchedulerV2.Data.csproj" />
+    <ProjectReference Include="..\..\ClinicScheduler\ClinicScheduler.Mcp\ClinicScheduler.Mcp.csproj" />
   </ItemGroup>
 
 </Project>

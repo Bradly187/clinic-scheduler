@@ -1,0 +1,55 @@
+@page "/login"
+@layout ClinicSchedulerV2.Web.Components.Layout.AuthLayout
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@using ClinicSchedulerV2.Web.Identity
+@inject IWebHostEnvironment Environment
+@inject IConfiguration Configuration
+
+<PageTitle>Sign in · ClinicScheduler</PageTitle>
+
+<h1 class="auth-heading">Sign in</h1>
+
+@if (Error == "invalid")
+{
+    <div class="auth-error" role="alert">That user name and password did not match.</div>
+}
+else if (Error == "locked")
+{
+    <div class="auth-error" role="alert">
+        This account is locked, either after too many attempts (try again in 15 minutes) or because
+        the person is no longer active. Contact the clinic manager.
+    </div>
+}
+
+<form method="post" action="/account/login" class="auth-form">
+    <AntiforgeryToken />
+    <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+    <label for="userName">User name</label>
+    <input id="userName" name="userName" autocomplete="username" required autofocus />
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required />
+    <button type="submit">Sign in</button>
+</form>
+
+@if (ShowDemoAccounts)
+{
+    <div class="auth-demo">
+        <div class="auth-demo-title">Demo accounts (development only)</div>
+        <table>
+            @foreach (var account in DemoAccounts.All)
+            {
+                <tr><td class="mono">@account.UserName</td><td>@account.Who</td></tr>
+            }
+        </table>
+        <div class="auth-demo-note">The password is <span class="mono">Database:DemoPassword</span> in appsettings.Development.json.</div>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery] private string? Error { get; set; }
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+
+    private bool ShowDemoAccounts =>
+        Environment.IsDevelopment() && !string.IsNullOrEmpty(Configuration["Database:DemoPassword"]);
+}

@@ -1,0 +1,207 @@
+@page "/billing"
+@attribute [Authorize(Roles = Roles.Staff)]
+@inject ClinicDb Clinic
+@inject BillingService Invoices
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>Billing · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Billing</MudText>
+        <MudText Typo="Typo.body2" Class="lead">
+            Totals, balances and overdue status are computed by the database from lines and payments, never stored.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" StartIcon="@Icons.Material.Filled.Add"
+               OnClick="@(() => { _newOpen = true; _newPatient = null; _violation = null; })">New invoice</MudButton>
+</div>
+
+<MudGrid Spacing="3" Class="mb-2">
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@Formats.Money(_invoices.Where(i => i.Status == InvoiceStatus.Sent).Sum(i => i.Balance))</div><div class="label">Open balance</div></div></MudItem>
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@Formats.Money(_invoices.Where(i => i.IsOverdue).Sum(i => i.Balance))</div><div class="label">Past due</div></div></MudItem>
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@_invoices.Count(i => i.Status == InvoiceStatus.Draft)</div><div class="label">Drafts to send</div></div></MudItem>
+    <MudItem xs="6" md="3"><div class="panel stat"><div class="value">@Formats.Money(_invoices.Where(i => i.Status != InvoiceStatus.Void).Sum(i => i.Paid))</div><div class="label">Collected</div></div></MudItem>
+</MudGrid>
+
+<MudTabs Elevation="0" Outlined="true" Rounded="true" TabPanelsClass="pt-4">
+    <MudTabPanel Text="Invoices">
+        <MudStack Row="true" Spacing="1" Class="mb-3" Wrap="Wrap.Wrap">
+            @foreach (var filter in Filters)
+            {
+                var f = filter;
+                <MudChip T="string" Size="Size.Small" Variant="@(_filter == f ? Variant.Filled : Variant.Outlined)"
+                         Color="@(_filter == f ? Color.Primary : Color.Default)" OnClick="@(() => _filter = f)">@f</MudChip>
+            }
+        </MudStack>
+        <div class="panel">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead><tr><th>#</th><th>Patient</th><th>Status</th><th>Issued</th><th>Due</th><th class="money">Total</th><th class="money">Balance</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var i in Shown)
+                    {
+                        <tr style="cursor: pointer" @onclick="@(() => Navigation.NavigateTo($"/billing/{i.InvoiceId}"))">
+                            <td class="mono">@i.InvoiceId</td>
+                            <td>@i.Patient</td>
+                            <td><StatusChip Text="@i.Status.ToString()" />@if (i.IsOverdue) { <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text">Past due</MudChip> }</td>
+                            <td>@(i.IssuedOn is { } d ? Formats.Date(d) : "")</td>
+                            <td>@(i.DueOn is { } due ? Formats.Date(due) : "")</td>
+                            <td class="money">@Formats.Money(i.Total)</td>
+                            <td class="money">@Formats.Money(i.Balance)</td>
+                            <td style="text-align: right"><MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            @if (!Shown.Any())
+            {
+                <MudText Typo="Typo.body2" Class="muted pa-4">No invoices match.</MudText>
+            }
+        </div>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Patient balances">
+        <div class="panel">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead><tr><th>Patient</th><th class="money">Open balance</th><th class="money">Past due</th></tr></thead>
+                <tbody>
+                    @foreach (var b in _balances)
+                    {
+                        <tr><td>@b.Patient</td><td class="money">@Formats.Money(b.OpenBalance)</td><td class="money">@Formats.Money(b.OverdueBalance)</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            @if (_balances.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted pa-4">Nobody owes anything.</MudText>
+            }
+        </div>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Insurance">
+        <RuleAlert Violation="_policyViolation" />
+        <div class="panel mb-3">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead><tr><th>Patient</th><th>Payer</th><th>Member ID</th><th>Group</th><th>Since</th><th></th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var p in _policies)
+                    {
+                        <tr>
+                            <td>@_patients.FirstOrDefault(x => x.PatientId == p.PatientId)?.FullName</td>
+                            <td>@p.PayerName@(p.IsPrimary ? " (primary)" : "")</td>
+                            <td class="mono">@p.MemberId</td>
+                            <td class="mono">@p.GroupNumber</td>
+                            <td>@Formats.Date(p.EffectiveFrom)</td>
+                            <td>@if (!p.IsActive) { <StatusChip Text="Inactive" /> }</td>
+                            <td style="text-align: right">@if (p.IsActive) { <MudButton Size="Size.Small" OnClick="@(() => Deactivate(p))">End</MudButton> }</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+        <div class="panel pa-4">
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Add a policy</MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" md="4"><IdSelect TItem="Patient" Items="_patients" Label="Patient" IdOf="@(x => x.PatientId)" TextOf="@(x => x.FullName)" @bind-Value="_policyPatient" /></MudItem>
+                <MudItem xs="12" md="4"><MudTextField T="string" @bind-Value="_payer" Label="Payer" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="6" md="2"><MudTextField T="string" @bind-Value="_member" Label="Member ID" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="6" md="2"><MudTextField T="string" @bind-Value="_group" Label="Group" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="6" md="3"><MudDatePicker @bind-Date="_since" Label="Effective from" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="6" md="3" Class="d-flex align-center"><MudCheckBox T="bool" @bind-Value="_primary" Label="Primary" Color="Color.Primary" /></MudItem>
+                <MudItem xs="12" md="6" Class="d-flex align-center justify-end">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+                               Disabled="@(_policyPatient is null || string.IsNullOrWhiteSpace(_payer) || string.IsNullOrWhiteSpace(_member) || _since is null)"
+                               OnClick="AddPolicy">Add policy</MudButton>
+                </MudItem>
+            </MudGrid>
+        </div>
+    </MudTabPanel>
+</MudTabs>
+
+<MudDialog @bind-Visible="_newOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">New invoice</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_violation" />
+        <IdSelect TItem="Patient" Items="_patients" Label="Patient" IdOf="@(p => p.PatientId)" TextOf="@(p => p.FullName)" @bind-Value="_newPatient" />
+        <MudText Typo="Typo.caption" Class="muted">The invoice starts as a draft; add lines, then send it.</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _newOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" Disabled="@(_newPatient is null)" OnClick="Create">Create draft</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private static readonly string[] Filters = ["Open", "Past due", "Draft", "Paid", "Void", "All"];
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true, CloseOnEscapeKey = true };
+
+    private List<InvoiceSummary> _invoices = [];
+    private List<PatientBalance> _balances = [];
+    private List<InsurancePolicy> _policies = [];
+    private List<Patient> _patients = [];
+    private string _filter = "Open";
+
+    private bool _newOpen;
+    private int? _newPatient;
+    private DbRuleViolation? _violation, _policyViolation;
+
+    private int? _policyPatient;
+    private string? _payer, _member, _group;
+    private DateTime? _since = DateTime.Today;
+    private bool _primary = true;
+
+    private IEnumerable<InvoiceSummary> Shown => _filter switch
+    {
+        "Open" => _invoices.Where(i => i.Status == InvoiceStatus.Sent),
+        "Past due" => _invoices.Where(i => i.IsOverdue),
+        "Draft" => _invoices.Where(i => i.Status == InvoiceStatus.Draft),
+        "Paid" => _invoices.Where(i => i.Status == InvoiceStatus.Paid),
+        "Void" => _invoices.Where(i => i.Status == InvoiceStatus.Void),
+        _ => _invoices,
+    };
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await Clinic.OpenAsync();
+        _invoices = await db.InvoiceSummaries.OrderByDescending(i => i.InvoiceId).ToListAsync();
+        _balances = await db.PatientBalances.Where(b => b.OpenBalance > 0).OrderByDescending(b => b.OpenBalance).ToListAsync();
+        _policies = await db.InsurancePolicies.OrderBy(p => p.PatientId).ThenByDescending(p => p.IsPrimary).ToListAsync();
+        _patients = await db.Patients.Where(p => p.IsActive).OrderBy(p => p.LastName).ThenBy(p => p.FirstName).ToListAsync();
+    }
+
+    private async Task Create()
+    {
+        if (_newPatient is null) return;
+        var result = await Invoices.CreateInvoiceAsync(_newPatient.Value, null);
+        _violation = result.Violation;
+        if (result.Succeeded) Navigation.NavigateTo($"/billing/{result.Id}");
+    }
+
+    private async Task AddPolicy()
+    {
+        var result = await Invoices.AddPolicyAsync(new InsurancePolicy
+        {
+            PatientId = _policyPatient!.Value,
+            PayerName = _payer!.Trim(),
+            MemberId = _member!.Trim(),
+            GroupNumber = string.IsNullOrWhiteSpace(_group) ? null : _group.Trim(),
+            IsPrimary = _primary,
+            EffectiveFrom = DateOnly.FromDateTime(_since!.Value),
+        });
+        _policyViolation = result.Violation;
+        if (!result.Succeeded) return;
+        Snackbar.Add("Policy added", Severity.Success);
+        _payer = _member = _group = null;
+        await LoadAsync();
+    }
+
+    private async Task Deactivate(InsurancePolicy policy)
+    {
+        var result = await Invoices.DeactivatePolicyAsync(policy.PolicyId);
+        _policyViolation = result.Violation;
+        await LoadAsync();
+    }
+}

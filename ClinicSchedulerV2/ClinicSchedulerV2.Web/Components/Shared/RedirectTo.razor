@@ -1,0 +1,8 @@
+@inject NavigationManager Navigation
+
+@code {
+    [Parameter, EditorRequired] public string Url { get; set; } = "/";
+
+    // A full page load, so the sign-in page renders as plain HTML and sees the current cookie
+    protected override void OnInitialized() => Navigation.NavigateTo(Url, forceLoad: true);
+}
