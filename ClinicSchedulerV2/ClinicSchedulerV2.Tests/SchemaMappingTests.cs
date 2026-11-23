@@ -12,7 +12,10 @@ namespace ClinicSchedulerV2.Tests;
 /// </summary>
 public class SchemaMappingTests(PostgresFixture db) : IClassFixture<PostgresFixture>
 {
-    private sealed record Column(string Table, string Name, string DataType, string UdtName, bool Nullable, bool HasDefault);
+    private sealed record Column(string Table, string Name, string DataType, string UdtName, bool Nullable, bool HasDefault, bool IsTable);
+
+    /// <summary>The script journal is bookkeeping for the runner, not part of the model.</summary>
+    private const string Journal = "schema_script";
 
     [Fact]
     public async Task Every_mapped_property_matches_a_column_in_the_schema()
@@ -23,9 +26,11 @@ public class SchemaMappingTests(PostgresFixture db) : IClassFixture<PostgresFixt
         await using var context = CreateContext();
         foreach (var entity in context.Model.GetEntityTypes())
         {
-            var table = entity.GetTableName();
+            var table = entity.GetTableName() ?? entity.GetViewName();
             if (table is null) continue;
-            var store = StoreObjectIdentifier.Table(table, entity.GetSchema());
+            var store = entity.GetTableName() is not null
+                ? StoreObjectIdentifier.Table(table, entity.GetSchema())
+                : StoreObjectIdentifier.View(table, entity.GetViewSchema());
 
             if (!columns.Any(c => c.Table == table))
             {
@@ -44,8 +49,9 @@ public class SchemaMappingTests(PostgresFixture db) : IClassFixture<PostgresFixt
                     continue;
                 }
 
-                // A non-nullable C# property over a nullable column throws on read when the value is NULL
-                if (!property.IsNullable && column.Nullable)
+                // A non-nullable C# property over a nullable column throws on read when the value is NULL.
+                // View columns always report nullable, so this only applies to tables.
+                if (!property.IsNullable && column.Nullable && column.IsTable)
                     problems.Add($"{entity.ClrType.Name}.{property.Name}: required in C# but {table}.{name} allows NULL");
 
                 var expected = ExpectedUdt(property.ClrType);
@@ -72,6 +78,8 @@ public class SchemaMappingTests(PostgresFixture db) : IClassFixture<PostgresFixt
                 if (property.GetColumnName(store) is { } name) mapped.Add((table, name));
         }
 
+        columns = columns.Where(c => c.IsTable && c.Table != Journal).ToList();
+
         // A NOT NULL column without a default that EF never writes makes every insert fail
         var unfillable = columns
             .Where(c => !mapped.Contains((c.Table, c.Name)) && !c.Nullable && !c.HasDefault)
@@ -83,7 +91,8 @@ public class SchemaMappingTests(PostgresFixture db) : IClassFixture<PostgresFixt
         var tables = columns.Select(c => c.Table).Distinct().Order().ToList();
         var mappedTables = mapped.Select(m => m.Item1).Distinct().ToHashSet();
         Assert.Equal([], tables.Where(t => !mappedTables.Contains(t)));
-        Assert.Equal(17, tables.Count);
+        // 17 from the original design, 4 for accounts, 4 for billing, 3 for waitlist, notes, notifications
+        Assert.Equal(28, tables.Count);
     }
 
     [Fact]
@@ -124,7 +133,7 @@ public class SchemaMappingTests(PostgresFixture db) : IClassFixture<PostgresFixt
         var catalog = new ClinicSchedulerV2.Data.Database.DatabaseCatalog(new ClinicDb(
             Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions
                 .GetRequiredService<IDbContextFactory<ClinicDbContext>>(provider),
-            new ActingUser()));
+            new FixedActorSource(Actor.Nobody)));
 
         // Every page reads the clinic's date from clinic_now()
         var today = await catalog.ClinicTodayAsync();
@@ -150,16 +159,17 @@ public class SchemaMappingTests(PostgresFixture db) : IClassFixture<PostgresFixt
         await using var command = new NpgsqlCommand(
             """
             SELECT c.table_name, c.column_name, c.data_type, c.udt_name, c.is_nullable = 'YES',
-                   c.column_default IS NOT NULL OR c.is_identity = 'YES'
+                   c.column_default IS NOT NULL OR c.is_identity = 'YES' OR c.is_generated = 'ALWAYS',
+                   t.table_type = 'BASE TABLE'
             FROM information_schema.columns c
             JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
-            WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+            WHERE c.table_schema = 'public'
             """, connection);
         var columns = new List<Column>();
         await using var reader = await command.ExecuteReaderAsync();
         while (await reader.ReadAsync())
             columns.Add(new Column(reader.GetString(0), reader.GetString(1), reader.GetString(2),
-                reader.GetString(3), reader.GetBoolean(4), reader.GetBoolean(5)));
+                reader.GetString(3), reader.GetBoolean(4), reader.GetBoolean(5), reader.GetBoolean(6)));
         return columns;
     }
 
@@ -167,22 +177,9 @@ public class SchemaMappingTests(PostgresFixture db) : IClassFixture<PostgresFixt
     private static string? ExpectedUdt(Type clrType)
     {
         var type = Nullable.GetUnderlyingType(clrType) ?? clrType;
+        // Each C# enum maps to the PostgreSQL enum type named after it in snake_case
         if (type.IsEnum)
-            return type.Name switch
-            {
-                "RoomType" => "room_type",
-                "ProviderCredential" => "provider_credential",
-                "DrugClass" => "drug_class",
-                "PlanStatus" => "plan_status",
-                "AppointmentStatus" => "appointment_status",
-                "DoseUnit" => "dose_unit",
-                "AdminRoute" => "admin_route",
-                "AdminReason" => "admin_reason",
-                "RequestStatus" => "request_status",
-                "CancelSource" => "cancel_source",
-                "AuditAction" => "audit_action",
-                _ => "unknown enum " + type.Name,
-            };
+            return string.Concat(type.Name.Select((c, i) => i > 0 && char.IsUpper(c) ? "_" + char.ToLowerInvariant(c) : char.ToLowerInvariant(c).ToString()));
         return type switch
         {
             _ when type == typeof(int) => "int4",
@@ -192,6 +189,7 @@ public class SchemaMappingTests(PostgresFixture db) : IClassFixture<PostgresFixt
             _ when type == typeof(decimal) => "numeric",
             _ when type == typeof(DateOnly) => "date",
             _ when type == typeof(DateTime) => "timestamp",
+            _ when type == typeof(DateTimeOffset) => "timestamptz",
             _ => null, // strings map to varchar, bpchar, text or jsonb; checked by existence and nullability only
         };
     }

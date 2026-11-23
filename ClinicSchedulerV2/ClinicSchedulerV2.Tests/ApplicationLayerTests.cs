@@ -25,13 +25,12 @@ public class ApplicationLayerTests : IClassFixture<PostgresFixture>, IDisposable
         _fixture = fixture;
         var services = new ServiceCollection();
         services.AddDbContextFactory<ClinicDbContext>(o => ClinicDbContext.Configure(o, fixture.ConnectionString));
-        services.AddScoped<ActingUser>();
+        services.AddSingleton<IActorSource>(new FixedActorSource(Actor.Employee(13, "Monica Patel")));
         services.AddScoped<ClinicDb>();
         services.AddScoped<SchedulingService>();
         services.AddScoped<DatabaseCatalog>();
         _services = services.BuildServiceProvider();
 
-        _services.GetRequiredService<ActingUser>().Set(13, "Monica Patel");
         _clinic = _services.GetRequiredService<ClinicDb>();
         _scheduling = _services.GetRequiredService<SchedulingService>();
         _catalog = _services.GetRequiredService<DatabaseCatalog>();
@@ -197,12 +196,12 @@ public class ApplicationLayerTests : IClassFixture<PostgresFixture>, IDisposable
         var constraints = await _catalog.ConstraintsAsync();
         Assert.Contains(constraints.Rows, r => r[1] == "ex_appt_patient_no_overlap" && r[2] == "EXCLUDE");
         Assert.Contains(constraints.Rows, r => r[1] == "uq_cancel_one_pending" && r[2] == "UNIQUE (partial index)");
-        Assert.Equal(24, constraints.Rows.Count(r => r[2] == "CHECK"));
+        Assert.Equal(24 + 15, constraints.Rows.Count(r => r[2] == "CHECK")); // the original 24, plus 15 from scripts 04-06
         Assert.All(constraints.Rows.Where(r => r[2] == "CHECK"), r => Assert.NotEqual("", r[3])); // each CHECK is described
 
-        Assert.Equal(17, (await _catalog.TriggersAsync()).Rows.Count);
+        Assert.Equal(17 + 25, (await _catalog.TriggersAsync()).Rows.Count); // the original 17, plus 7 + 9 + 9 from scripts 04-06
         Assert.Equal(
-            ["sp_approve_request", "sp_deny_request", "sp_reschedule_missed", "sp_validate_appointment"],
+            ["sp_approve_request", "sp_book_appointment", "sp_deny_request", "sp_reschedule_missed", "sp_validate_appointment"],
             (await _catalog.RoutinesAsync()).Rows.Select(r => r[0]));
 
         Assert.Equal(8, _catalog.Reports.Count);
@@ -229,7 +228,7 @@ public class ApplicationLayerTests : IClassFixture<PostgresFixture>, IDisposable
         try
         {
             var applied = await DatabaseBootstrapper.EnsureCreatedAsync(connectionString, includeSampleData: false);
-            Assert.Equal(["01_schema.sql", "02_rules.sql"], applied);
+            Assert.Equal(["01_schema.sql", "02_rules.sql", "04_accounts.sql", "05_billing.sql", "06_care.sql"], applied);
 
             await using (var connection = new NpgsqlConnection(connectionString))
             {

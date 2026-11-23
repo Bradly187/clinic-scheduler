@@ -40,3 +40,23 @@ public enum RequestStatus { Pending, Approved, Denied }
 public enum CancelSource { Patient, Clinic }
 
 public enum AuditAction { INSERT, UPDATE, DELETE }
+
+public enum InvoiceStatus { Draft, Sent, Paid, Void }
+
+public enum PaymentMethod { Card, Cash, Check, Insurance }
+
+public enum WaitlistStatus { Waiting, Booked, Removed }
+
+public enum NotificationKind
+{
+    AppointmentBooked,
+    AppointmentCanceled,
+    AppointmentRescheduled,
+    RequestSubmitted,
+    RequestApproved,
+    RequestDenied,
+    CancellationRequested,
+    CancellationDenied,
+    InvoiceSent,
+    WaitlistSlotOpened,
+}
