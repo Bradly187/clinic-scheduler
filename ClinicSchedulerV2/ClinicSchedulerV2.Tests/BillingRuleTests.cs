@@ -70,6 +70,8 @@ public class BillingRuleTests(PostgresFixture db) : IClassFixture<PostgresFixtur
         // Voiding needs a reason, and is refused once money has been taken
         v = await s.RejectedAsync("UPDATE invoice SET status = 'Void' WHERE invoice_id = 4");
         Assert.Equal((DbRuleKind.Check, "ck_invoice_void"), (v.Kind, v.Constraint));
+        v = await s.RejectedAsync("UPDATE invoice SET status = 'Void', void_reason = '   ' WHERE invoice_id = 4");
+        Assert.Equal("ck_invoice_void", v.Constraint);
         v = await s.RejectedAsync("UPDATE invoice SET status = 'Void', void_reason = 'x' WHERE invoice_id = 2");
         Assert.Equal("rule_invoice_has_payments", v.Constraint);
 

@@ -1,0 +1,83 @@
+@page "/notifications"
+@inject CareService Care
+@inject NavigationManager Navigation
+
+<PageTitle>Notifications · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Notifications</MudText>
+        <MudText Typo="Typo.body2" Class="lead">Written by the database when something that concerns you happens.</MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" Disabled="@(!_items.Any(n => n.ReadAt is null))" OnClick="MarkAll">Mark all read</MudButton>
+</div>
+
+<div class="panel">
+    @if (_items.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted pa-6">Nothing yet.</MudText>
+    }
+    @foreach (var n in _items)
+    {
+        <div class="d-flex align-start pa-4" style="gap: 14px; border-bottom: 1px solid var(--mud-palette-table-lines); cursor: pointer; @(n.ReadAt is null ? "background: #f2f8f8" : "")"
+             @onclick="@(() => Open(n))">
+            <MudIcon Icon="@IconFor(n.Kind)" Color="@(n.ReadAt is null ? Color.Primary : Color.Default)" />
+            <div style="flex: 1">
+                <div style="font-weight: @(n.ReadAt is null ? 600 : 400)">@n.Title</div>
+                <div class="muted">@n.Body</div>
+            </div>
+            <div class="muted" style="font-size: 0.8rem; white-space: nowrap">@n.CreatedAt.ToString("MMM d, h:mm tt")</div>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<Notification> _items = [];
+    private bool _isPatient, _isStaff, _isProvider;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            (_isPatient, _isStaff, _isProvider) = (user.IsInRole(Roles.Patient), user.IsInRole(Roles.Staff), user.IsInRole(Roles.Provider));
+        }
+        _items = await Care.MyNotificationsAsync();
+    }
+
+    private async Task Open(Notification n)
+    {
+        if (n.ReadAt is null) await Care.MarkReadAsync(n.NotificationId);
+        var target = Target(n);
+        if (target is not null) Navigation.NavigateTo(target);
+        else _items = await Care.MyNotificationsAsync();
+    }
+
+    private string? Target(Notification n) => n.Kind switch
+    {
+        NotificationKind.InvoiceSent when _isPatient => $"/my-invoices/{n.InvoiceId}",
+        NotificationKind.RequestSubmitted or NotificationKind.CancellationRequested when _isStaff => "/requests",
+        NotificationKind.WaitlistSlotOpened when _isStaff => "/waitlist",
+        _ when n.AppointmentId is not null && _isProvider => $"/notes/{n.AppointmentId}",
+        _ when _isPatient => "/",
+        _ => null,
+    };
+
+    private async Task MarkAll()
+    {
+        await Care.MarkAllReadAsync();
+        _items = await Care.MyNotificationsAsync();
+    }
+
+    private static string IconFor(NotificationKind kind) => kind switch
+    {
+        NotificationKind.AppointmentBooked or NotificationKind.RequestApproved => Icons.Material.Outlined.EventAvailable,
+        NotificationKind.AppointmentCanceled or NotificationKind.RequestDenied or NotificationKind.CancellationDenied => Icons.Material.Outlined.EventBusy,
+        NotificationKind.AppointmentRescheduled => Icons.Material.Outlined.Update,
+        NotificationKind.InvoiceSent => Icons.Material.Outlined.ReceiptLong,
+        NotificationKind.WaitlistSlotOpened => Icons.Material.Outlined.HourglassTop,
+        _ => Icons.Material.Outlined.Inbox,
+    };
+}

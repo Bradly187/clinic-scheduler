@@ -1,0 +1,220 @@
+@page "/billing/{InvoiceId:int}"
+@attribute [Authorize(Roles = Roles.Staff)]
+@inject ClinicDb Clinic
+@inject BillingService Billing
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>Invoice @InvoiceId · ClinicScheduler</PageTitle>
+
+@if (_invoice is null || _summary is null)
+{
+    @if (_loaded) { <MudText Typo="Typo.body1" Class="muted">Invoice @InvoiceId doesn't exist.</MudText> }
+    else { <MudProgressLinear Indeterminate="true" /> }
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <MudButton Href="/billing" StartIcon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="ml-n2 mb-1 no-print">Billing</MudButton>
+            <MudText Typo="Typo.h4">Invoice #@InvoiceId</MudText>
+            @if (!string.IsNullOrEmpty(_invoice.Notes)) { <MudText Typo="Typo.body2" Class="lead">@_invoice.Notes</MudText> }
+        </div>
+        <div class="d-flex no-print" style="gap: 8px; flex-wrap: wrap">
+            @if (_invoice.Status == InvoiceStatus.Draft)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" OnClick="Send">Send invoice</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="DeleteDraft">Delete draft</MudButton>
+            }
+            @if (_invoice.Status == InvoiceStatus.Sent)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" OnClick="OpenPayment">Record payment</MudButton>
+            }
+            @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent)
+            {
+                <MudButton Variant="Variant.Outlined" OnClick="@(() => { _voidOpen = true; _voidReason = ""; _dialogViolation = null; })">Void</MudButton>
+            }
+            @if (_invoice.Lines.Any(l => l.AppointmentId is not null) && _invoice.Status != InvoiceStatus.Void)
+            {
+                <MudButton Variant="Variant.Outlined" Href="@($"/superbill/{InvoiceId}")">Superbill</MudButton>
+            }
+        </div>
+    </div>
+
+    <RuleAlert Violation="_violation" />
+
+    <InvoiceView Invoice="_invoice" Summary="_summary" LineActions="@(_invoice.Status == InvoiceStatus.Draft ? RemoveButton : null)" />
+
+    @if (_invoice.Status == InvoiceStatus.Draft)
+    {
+        <div class="panel pa-4 no-print">
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Add a line</MudText>
+            @if (_billable.Count > 0)
+            {
+                <MudText Typo="Typo.caption" Class="muted">Completed visits not yet billed:</MudText>
+                <div class="d-flex flex-wrap mb-3" style="gap: 6px">
+                    @foreach (var a in _billable)
+                    {
+                        <MudChip T="string" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => Prefill(a))">
+                            @a.StartTime.ToString("MMM d") · @a.ServiceType.Name · @Formats.Money(a.ServiceType.Fee)
+                        </MudChip>
+                    }
+                </div>
+            }
+            <MudGrid Spacing="2">
+                <MudItem xs="12" md="5"><MudTextField T="string" @bind-Value="_description" Label="Description" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="6" md="2"><MudTextField T="string" @bind-Value="_code" Label="Code" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="6" md="1"><MudNumericField T="short" @bind-Value="_quantity" Label="Qty" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="6" md="2"><MudNumericField T="decimal" @bind-Value="_price" Label="Unit price" Format="N2" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                <MudItem xs="6" md="2" Class="d-flex align-center">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" FullWidth="true"
+                               Disabled="@string.IsNullOrWhiteSpace(_description)" OnClick="AddLine">Add</MudButton>
+                </MudItem>
+            </MudGrid>
+            @if (_lineVisit is { } visit)
+            {
+                <MudText Typo="Typo.caption" Class="muted">For the visit on @Formats.DayAndTime(visit.StartTime). <MudLink OnClick="@(() => _lineVisit = null)">Not for a visit</MudLink></MudText>
+            }
+        </div>
+    }
+}
+
+<MudDialog @bind-Visible="_paymentOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">Record payment</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_dialogViolation" />
+        <MudNumericField T="decimal" @bind-Value="_amount" Label="Amount" Format="N2" Adornment="Adornment.Start" AdornmentText="$" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudSelect T="PaymentMethod" @bind-Value="_method" Label="Method" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3">
+            @foreach (var m in Enum.GetValues<PaymentMethod>()) { <MudSelectItem T="PaymentMethod" Value="m">@m</MudSelectItem> }
+        </MudSelect>
+        <MudTextField T="string" @bind-Value="_reference" Label="Reference (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _paymentOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" OnClick="RecordPayment">Record</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_voidOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">Void invoice #@InvoiceId</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_dialogViolation" />
+        <MudTextField T="string" @bind-Value="_voidReason" Label="Reason" Immediate="true" AutoFocus="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _voidOpen = false)">Keep it</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Error" DropShadow="false" OnClick="Void">Void</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public int InvoiceId { get; set; }
+
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true, CloseOnEscapeKey = true };
+
+    private bool _loaded;
+    private Invoice? _invoice;
+    private InvoiceSummary? _summary;
+    private List<Appointment> _billable = [];
+    private DbRuleViolation? _violation, _dialogViolation;
+
+    private Appointment? _lineVisit;
+    private string? _description, _code;
+    private short _quantity = 1;
+    private decimal _price;
+
+    private bool _paymentOpen, _voidOpen;
+    private decimal _amount;
+    private PaymentMethod _method = PaymentMethod.Card;
+    private string? _reference, _voidReason;
+
+    private RenderFragment<InvoiceLine> RemoveButton => line =>
+        @<MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" OnClick="@(() => RemoveLine(line))" aria-label="Remove line" />;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var loaded = await InvoiceQueries.LoadAsync(Clinic, InvoiceId);
+        (_invoice, _summary) = loaded is { } l ? (l.Invoice, l.Summary) : (null, null);
+        _loaded = true;
+        if (_invoice is null) return;
+
+        // Completed visits of this patient not on any live invoice: what can be billed
+        await using var db = await Clinic.OpenAsync();
+        var patient = _invoice.PatientId;
+        _billable = await db.Appointments.Include(a => a.ServiceType)
+            .Where(a => a.PatientId == patient && a.Status == AppointmentStatus.Completed)
+            .Where(a => !db.InvoiceLines.Any(x => x.AppointmentId == a.AppointmentId
+                                                && db.Invoices.Any(i => i.InvoiceId == x.InvoiceId && i.Status != InvoiceStatus.Void)))
+            .OrderByDescending(a => a.StartTime).Take(12).ToListAsync();
+    }
+
+    private void Prefill(Appointment visit)
+    {
+        _lineVisit = visit;
+        _description = visit.ServiceType.Name;
+        _quantity = 1;
+        _price = visit.ServiceType.Fee;
+    }
+
+    private async Task AddLine()
+    {
+        var result = await Billing.AddLineAsync(InvoiceId, _lineVisit?.AppointmentId, _description!, _code, _quantity, _price);
+        if (await Done(result, null))
+        {
+            _lineVisit = null;
+            _description = _code = null;
+            _quantity = 1;
+            _price = 0;
+        }
+    }
+
+    private async Task RemoveLine(InvoiceLine line) => await Done(await Billing.RemoveLineAsync(line.LineId), "Line removed");
+
+    private async Task Send() => await Done(await Billing.SendAsync(InvoiceId), "Invoice sent; the patient has been notified");
+
+    private async Task DeleteDraft()
+    {
+        var result = await Billing.DeleteDraftAsync(InvoiceId);
+        _violation = result.Violation;
+        if (result.Succeeded) Navigation.NavigateTo("/billing");
+    }
+
+    private void OpenPayment()
+    {
+        _amount = _summary?.Balance ?? 0;
+        _method = PaymentMethod.Card;
+        _reference = null;
+        _dialogViolation = null;
+        _paymentOpen = true;
+    }
+
+    private async Task RecordPayment()
+    {
+        var result = await Billing.RecordPaymentAsync(InvoiceId, _amount, _method, _reference);
+        _dialogViolation = result.Violation;
+        if (!result.Succeeded) return;
+        _paymentOpen = false;
+        Snackbar.Add($"Payment of {Formats.Money(_amount)} recorded", Severity.Success);
+        await LoadAsync();
+    }
+
+    private async Task Void()
+    {
+        var result = await Billing.VoidAsync(InvoiceId, _voidReason?.Trim() ?? "");
+        _dialogViolation = result.Violation;
+        if (!result.Succeeded) return;
+        _voidOpen = false;
+        Snackbar.Add("Invoice voided", Severity.Info);
+        await LoadAsync();
+    }
+
+    private async Task<bool> Done(WriteResult result, string? message)
+    {
+        _violation = result.Violation;
+        if (result.Succeeded && message is not null) Snackbar.Add(message, Severity.Success);
+        await LoadAsync();
+        return result.Succeeded;
+    }
+}

@@ -11,11 +11,11 @@
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["ClinicSchedulerV2.Web.styles.css"]" />
     <ImportMap />
-    <HeadOutlet @rendermode="Interactive" />
+    <HeadOutlet @rendermode="PageRenderMode" />
 </head>
 
 <body>
-    <Routes @rendermode="Interactive" />
+    <Routes @rendermode="PageRenderMode" />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
@@ -24,6 +24,13 @@
 </html>
 
 @code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
     // No prerendering: every page reads the database on load, and prerendering would do it twice
     private static readonly IComponentRenderMode Interactive = new InteractiveServerRenderMode(prerender: false);
+
+    // Pages marked [ExcludeFromInteractiveRouting] (sign-in) render as plain HTML, so their
+    // forms post to the server and the auth cookie is set on a normal response
+    private IComponentRenderMode? PageRenderMode =>
+        HttpContext.AcceptsInteractiveRouting() ? Interactive : null;
 }

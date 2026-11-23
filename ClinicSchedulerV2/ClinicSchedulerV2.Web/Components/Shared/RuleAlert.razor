@@ -21,7 +21,7 @@
 
     private string KindLabel => Violation?.Kind switch
     {
-        DbRuleKind.BusinessRule => "Scheduling rule (trigger)",
+        DbRuleKind.BusinessRule => "Database rule (trigger)",
         DbRuleKind.Check => "CHECK constraint",
         DbRuleKind.Exclusion => "Exclusion constraint",
         DbRuleKind.Unique => "UNIQUE constraint",

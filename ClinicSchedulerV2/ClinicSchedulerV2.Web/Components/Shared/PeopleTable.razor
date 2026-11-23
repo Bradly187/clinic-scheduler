@@ -1,0 +1,41 @@
+@* People and their login, for the Accounts page *@
+<MudSimpleTable Dense="true" Hover="true" Elevation="0">
+    <thead><tr><th>Name</th><th>Role</th><th>User name</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var row in Rows)
+        {
+            var locked = row.Account?.LockoutEnd > DateTimeOffset.UtcNow;
+            <tr>
+                <td>@row.Name@if (!row.Active) { <span class="muted"> (inactive)</span> }</td>
+                <td>@row.Role</td>
+                <td class="mono">@row.Account?.UserName</td>
+                <td>
+                    @if (row.Account is null) { <span class="muted">No account</span> }
+                    else if (locked) { <StatusChip Text="Locked" /> }
+                    else { <StatusChip Text="Active" /> }
+                </td>
+                <td style="text-align: right; white-space: nowrap">
+                    @if (row.Account is null)
+                    {
+                        <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => OnCreate.InvokeAsync(row))">Create account</MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small" OnClick="@(() => OnReset.InvokeAsync(row))">Reset password</MudButton>
+                        @if (locked && row.Active)
+                        {
+                            <MudButton Size="Size.Small" OnClick="@(() => OnUnlock.InvokeAsync(row))">Unlock</MudButton>
+                        }
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</MudSimpleTable>
+
+@code {
+    [Parameter, EditorRequired] public List<ClinicSchedulerV2.Web.Components.Pages.Accounts.PersonRow> Rows { get; set; } = [];
+    [Parameter] public EventCallback<ClinicSchedulerV2.Web.Components.Pages.Accounts.PersonRow> OnCreate { get; set; }
+    [Parameter] public EventCallback<ClinicSchedulerV2.Web.Components.Pages.Accounts.PersonRow> OnReset { get; set; }
+    [Parameter] public EventCallback<ClinicSchedulerV2.Web.Components.Pages.Accounts.PersonRow> OnUnlock { get; set; }
+}

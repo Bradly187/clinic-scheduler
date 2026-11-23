@@ -1,0 +1,84 @@
+@* An invoice's lines, payments and totals, for staff and for the patient. Totals come from vw_invoice_summary. *@
+
+<div class="panel mb-4">
+    <div class="pa-4 d-flex align-start" style="gap: 24px; flex-wrap: wrap">
+        <div>
+            <MudText Typo="Typo.caption" Class="muted">Billed to</MudText>
+            <MudText Typo="Typo.body1">@Invoice.Patient.FullName</MudText>
+            <MudText Typo="Typo.body2" Class="muted">@Invoice.Patient.Street@(Invoice.Patient.City is null ? "" : $", {Invoice.Patient.City}")</MudText>
+        </div>
+        <div>
+            <MudText Typo="Typo.caption" Class="muted">Issued</MudText>
+            <MudText Typo="Typo.body1">@(Invoice.IssuedOn is { } i ? Formats.Date(i) : "Not yet")</MudText>
+        </div>
+        <div>
+            <MudText Typo="Typo.caption" Class="muted">Due</MudText>
+            <MudText Typo="Typo.body1" Style="@(Summary.IsOverdue ? "color: var(--mud-palette-error)" : "")">
+                @(Invoice.DueOn is { } d ? Formats.Date(d) : "—")@(Summary.IsOverdue ? " · past due" : "")
+            </MudText>
+        </div>
+        <MudSpacer />
+        <StatusChip Text="@Invoice.Status.ToString()" />
+    </div>
+    @if (Invoice.Status == InvoiceStatus.Void)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mx-4 mb-3">Voided @(Invoice.VoidedAt is { } v ? Formats.Date(v) : ""): @Invoice.VoidReason</MudAlert>
+    }
+    <MudDivider />
+    <MudSimpleTable Dense="true" Elevation="0">
+        <thead><tr><th>Description</th><th>Code</th><th>Visit</th><th class="money">Qty</th><th class="money">Price</th><th class="money">Amount</th>@if (LineActions is not null) { <th></th> }</tr></thead>
+        <tbody>
+            @foreach (var line in Invoice.Lines.OrderBy(l => l.LineId))
+            {
+                <tr>
+                    <td>@line.Description</td>
+                    <td class="mono">@line.BillingCode</td>
+                    <td>@(line.Appointment is { } a ? a.StartTime.ToString("MMM d, yyyy") : "")</td>
+                    <td class="money">@line.Quantity</td>
+                    <td class="money">@Formats.Money(line.UnitPrice)</td>
+                    <td class="money">@Formats.Money(line.Amount)</td>
+                    @if (LineActions is not null) { <td style="text-align: right">@LineActions(line)</td> }
+                </tr>
+            }
+            @if (Invoice.Lines.Count == 0)
+            {
+                <tr><td colspan="7" class="muted">No lines yet.</td></tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+    <div class="d-flex pa-4">
+        <table class="totals">
+            <tr><td>Total</td><td class="money">@Formats.Money(Summary.Total)</td></tr>
+            <tr><td>Paid</td><td class="money">@Formats.Money(Summary.Paid)</td></tr>
+            <tr class="grand"><td>Balance due</td><td class="money">@Formats.Money(Summary.Balance)</td></tr>
+        </table>
+    </div>
+</div>
+
+@if (Invoice.Payments.Count > 0)
+{
+    <div class="panel mb-4">
+        <div class="panel-title">Payments</div>
+        <MudSimpleTable Dense="true" Elevation="0">
+            <thead><tr><th>Date</th><th>Method</th><th>Reference</th><th class="money">Amount</th></tr></thead>
+            <tbody>
+                @foreach (var p in Invoice.Payments.OrderBy(p => p.PaidAt))
+                {
+                    <tr>
+                        <td>@Formats.Date(p.PaidAt)</td>
+                        <td>@p.Method</td>
+                        <td class="mono">@p.Reference</td>
+                        <td class="money">@Formats.Money(p.Amount)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public Invoice Invoice { get; set; } = null!;
+    [Parameter, EditorRequired] public InvoiceSummary Summary { get; set; } = null!;
+    /// <summary>Per-line actions (staff, drafts only).</summary>
+    [Parameter] public RenderFragment<InvoiceLine>? LineActions { get; set; }
+}

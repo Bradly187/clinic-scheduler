@@ -1,0 +1,82 @@
+@page "/request"
+@attribute [Authorize(Roles = Roles.Patient)]
+@inject ClinicDb Clinic
+@inject SchedulingService Scheduling
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>Request a visit · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Request a visit</MudText>
+        <MudText Typo="Typo.body2" Class="lead">
+            Tell us what you need and when suits you. The front desk books the closest time that works and you'll get a notification.
+        </MudText>
+    </div>
+</div>
+
+<div class="panel pa-4" style="max-width: 640px">
+    <RuleAlert Violation="_violation" />
+    <MudGrid Spacing="2">
+        <MudItem xs="12">
+            <IdSelect TItem="ServiceType" Items="_services" Label="What is the visit for?"
+                      IdOf="@(s => s.ServiceTypeId)" TextOf="@(s => s.Name)" @bind-Value="_service" />
+        </MudItem>
+        <MudItem xs="12">
+            <IdSelect TItem="Location" Items="_locations" Label="Location (optional)" Clearable="true"
+                      IdOf="@(l => l.LocationId)" TextOf="@(l => l.ShortName)" @bind-Value="_location" />
+        </MudItem>
+        <MudItem xs="7">
+            <MudDatePicker @bind-Date="_date" Label="Preferred day" DateFormat="ddd, MMM d, yyyy" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="5">
+            <MudSelect T="TimeSpan" @bind-Value="_time" Label="Preferred time" ToStringFunc="@(t => Slots.Label(t))"
+                       Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                @foreach (var time in Slots.StartTimes)
+                {
+                    <MudSelectItem T="TimeSpan" Value="time">@Slots.Label(time)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12">
+            <MudTextField T="string" @bind-Value="_notes" Label="Anything we should know? (optional)" Lines="3" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+    </MudGrid>
+    <div class="d-flex mt-4" style="gap: 8px">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" Disabled="@(_service is null || _date is null || _saving)" OnClick="Submit">Send request</MudButton>
+        <MudButton Href="/">Cancel</MudButton>
+    </div>
+</div>
+
+@code {
+    private List<ServiceType> _services = [];
+    private List<Location> _locations = [];
+    private int? _service, _location;
+    private DateTime? _date = DateTime.Today.AddDays(7);
+    private TimeSpan _time = TimeSpan.FromHours(10);
+    private string? _notes;
+    private bool _saving;
+    private DbRuleViolation? _violation;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await Clinic.OpenAsync();
+        _services = await db.ServiceTypes.Where(s => s.IsActive).OrderBy(s => s.ServiceTypeId).ToListAsync();
+        _locations = await db.Locations.OrderBy(l => l.LocationId).ToListAsync();
+        var me = (await Clinic.ActorAsync()).PatientId;
+        _location = await db.Patients.Where(p => p.PatientId == me).Select(p => (int?)p.HomeLocationId).SingleOrDefaultAsync();
+    }
+
+    private async Task Submit()
+    {
+        if (await Clinic.ActorAsync() is not { PatientId: { } me } || _service is null || _date is null) return;
+        _saving = true;
+        var result = await Scheduling.SubmitAppointmentRequestAsync(me, _service.Value, _location, _date.Value.Date + _time, _notes);
+        _saving = false;
+        _violation = result.Violation;
+        if (!result.Succeeded) return;
+        Snackbar.Add("Request sent. We'll notify you when it's booked.", Severity.Success);
+        Navigation.NavigateTo("/");
+    }
+}

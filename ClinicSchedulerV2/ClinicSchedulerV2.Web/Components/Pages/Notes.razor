@@ -1,0 +1,174 @@
+@page "/notes"
+@page "/notes/{AppointmentId:int}"
+@attribute [Authorize(Roles = Roles.Provider)]
+@inject ClinicDb Clinic
+@inject CareService Care
+@inject DatabaseCatalog Catalog
+@inject ISnackbar Snackbar
+
+<PageTitle>Visit notes · ClinicScheduler</PageTitle>
+
+@if (AppointmentId is null)
+{
+    <div class="page-head">
+        <div>
+            <MudText Typo="Typo.h4">Visit notes</MudText>
+            <MudText Typo="Typo.body2" Class="lead">Your visits from the last 30 days and the next 7. Notes are yours to write and sign; a signed note can't be changed.</MudText>
+        </div>
+    </div>
+    <div class="panel">
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+            <thead><tr><th>Visit</th><th>Patient</th><th>Service</th><th>Status</th><th>Note</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var v in _visits)
+                {
+                    <tr>
+                        <td class="time-cell">@v.Appointment.StartTime.ToString("ddd MMM d, h:mm tt")</td>
+                        <td>@v.Appointment.Patient.FullName</td>
+                        <td>@v.Appointment.ServiceType.Name</td>
+                        <td><StatusChip Text="@v.Appointment.Status.ToString()" /></td>
+                        <td>@(v.Signed > 0 ? "Signed" : v.Drafts > 0 ? "Draft" : "")</td>
+                        <td style="text-align: right"><MudButton Size="Size.Small" Color="Color.Primary" Href="@($"/notes/{v.Appointment.AppointmentId}")">Open</MudButton></td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+else if (_visit is null)
+{
+    <MudText Typo="Typo.body1" Class="muted">That visit doesn't exist.</MudText>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <MudText Typo="Typo.h4">@_visit.Patient.FullName</MudText>
+            <MudText Typo="Typo.body2" Class="lead">
+                @_visit.ServiceType.Name · @Formats.DayAndTime(_visit.StartTime) · @_visit.Provider.DisplayName · @_visit.Room.RoomName, @_visit.Room.Location.ShortName
+            </MudText>
+        </div>
+        <StatusChip Text="@_visit.Status.ToString()" />
+    </div>
+
+    <RuleAlert Violation="_violation" />
+
+    @foreach (var note in _notes)
+    {
+        <div class="panel pa-4 mb-3">
+            <div class="d-flex align-center mb-2">
+                <MudText Typo="Typo.subtitle2">@note.Author.Employee.FullName</MudText>
+                <MudText Typo="Typo.caption" Class="muted ml-2">
+                    @(note.SignedAt is { } signed ? $"Signed {Formats.DayAndTime(signed)}" : $"Draft, last saved {Formats.DayAndTime(note.UpdatedAt ?? note.CreatedAt)}")
+                </MudText>
+                <MudSpacer />
+                @if (note.SignedAt is null && note.AuthorId == _me)
+                {
+                    <MudButton Size="Size.Small" OnClick="@(() => Edit(note))">Edit</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => Sign(note))">Sign</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => Delete(note))">Delete</MudButton>
+                }
+            </div>
+            <div class="note-body">@note.Body</div>
+        </div>
+    }
+
+    <div class="panel pa-4">
+        <MudText Typo="Typo.subtitle2" Class="mb-2">@(_editingId is null ? "New note" : "Edit draft")</MudText>
+        <MudTextField T="string" @bind-Value="_body" Lines="6" Variant="Variant.Outlined" Immediate="true"
+                      Placeholder="Assessment, plan, anything given or done during the visit" />
+        <div class="d-flex mt-3" style="gap: 8px">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" Disabled="@(string.IsNullOrWhiteSpace(_body))" OnClick="Save">Save draft</MudButton>
+            @if (_editingId is not null)
+            {
+                <MudButton OnClick="Reset">Cancel edit</MudButton>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int? AppointmentId { get; set; }
+
+    private sealed record VisitRow(Appointment Appointment, int Signed, int Drafts);
+
+    private int? _me;
+    private List<VisitRow> _visits = [];
+    private Appointment? _visit;
+    private List<VisitNote> _notes = [];
+    private int? _editingId;
+    private string _body = "";
+    private DbRuleViolation? _violation;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _me = (await Clinic.ActorAsync()).EmployeeId;
+        _violation = null;
+        Reset();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await Clinic.OpenAsync();
+        if (AppointmentId is null)
+        {
+            var today = (await Catalog.ClinicTodayAsync()).ToDateTime(TimeOnly.MinValue);
+            var from = today.AddDays(-30);
+            var to = today.AddDays(8);
+            var visits = await db.Appointments.Include(a => a.Patient).Include(a => a.ServiceType)
+                .Where(a => a.ProviderId == _me && a.StartTime >= from && a.StartTime < to && a.Status != AppointmentStatus.Canceled)
+                .OrderByDescending(a => a.StartTime)
+                .ToListAsync();
+            var ids = visits.Select(a => a.AppointmentId).ToList();
+            var notes = await db.VisitNotes.Where(n => ids.Contains(n.AppointmentId))
+                .Select(n => new { n.AppointmentId, Signed = n.SignedAt != null }).ToListAsync();
+            _visits = visits.Select(a => new VisitRow(a,
+                notes.Count(n => n.AppointmentId == a.AppointmentId && n.Signed),
+                notes.Count(n => n.AppointmentId == a.AppointmentId && !n.Signed))).ToList();
+            return;
+        }
+
+        _visit = await db.Appointments
+            .Include(a => a.Patient).Include(a => a.ServiceType)
+            .Include(a => a.Provider).ThenInclude(p => p.Employee)
+            .Include(a => a.Room).ThenInclude(r => r.Location)
+            .SingleOrDefaultAsync(a => a.AppointmentId == AppointmentId);
+        _notes = await db.VisitNotes.Include(n => n.Author).ThenInclude(p => p.Employee)
+            .Where(n => n.AppointmentId == AppointmentId).OrderBy(n => n.CreatedAt).ToListAsync();
+    }
+
+    private void Edit(VisitNote note)
+    {
+        _editingId = note.NoteId;
+        _body = note.Body;
+    }
+
+    private void Reset()
+    {
+        _editingId = null;
+        _body = "";
+    }
+
+    private async Task Save()
+    {
+        if (AppointmentId is null) return;
+        var result = await Care.SaveNoteAsync(_editingId, AppointmentId.Value, _body.Trim());
+        await Done(result, "Draft saved");
+    }
+
+    private async Task Sign(VisitNote note) => await Done(await Care.SignNoteAsync(note.NoteId), "Note signed");
+
+    private async Task Delete(VisitNote note) => await Done(await Care.DeleteNoteAsync(note.NoteId), "Draft deleted");
+
+    private async Task Done(WriteResult result, string message)
+    {
+        _violation = result.Violation;
+        if (result.Succeeded)
+        {
+            Snackbar.Add(message, Severity.Success);
+            Reset();
+        }
+        await LoadAsync();
+    }
+}

@@ -1,6 +1,24 @@
 ﻿<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                @if (context.User.Identity?.IsAuthenticated == true)
+                {
+                    <RedirectTo Url="/access-denied" />
+                }
+                else
+                {
+                    <RedirectTo Url="@($"/login?returnUrl={Uri.EscapeDataString(Navigation.ToBaseRelativePath(Navigation.Uri) is var p && p.Length > 0 ? "/" + p : "/")}")" />
+                }
+            </NotAuthorized>
+            <Authorizing>
+                <div class="pa-8"><MudProgressLinear Indeterminate="true" /></div>
+            </Authorizing>
+        </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>
+
+@code {
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+}

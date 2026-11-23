@@ -1,0 +1,84 @@
+@page "/my-invoices"
+@page "/my-invoices/{InvoiceId:int}"
+@attribute [Authorize(Roles = Roles.Patient)]
+@inject ClinicDb Clinic
+
+<PageTitle>Invoices · ClinicScheduler</PageTitle>
+
+@if (InvoiceId is null)
+{
+    <div class="page-head">
+        <div>
+            <MudText Typo="Typo.h4">Invoices</MudText>
+            <MudText Typo="Typo.body2" Class="lead">To pay, call the front desk or pay at your next visit.</MudText>
+        </div>
+    </div>
+    <div class="panel">
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+            <thead><tr><th>#</th><th>Issued</th><th>Due</th><th>Status</th><th class="money">Total</th><th class="money">Balance</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var i in _invoices)
+                {
+                    <tr>
+                        <td class="mono">@i.InvoiceId</td>
+                        <td>@(i.IssuedOn is { } d ? Formats.Date(d) : "")</td>
+                        <td>@(i.DueOn is { } due ? Formats.Date(due) : "")</td>
+                        <td><StatusChip Text="@i.Status.ToString()" />@if (i.IsOverdue) { <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text">Past due</MudChip> }</td>
+                        <td class="money">@Formats.Money(i.Total)</td>
+                        <td class="money">@Formats.Money(i.Balance)</td>
+                        <td style="text-align: right"><MudButton Size="Size.Small" Color="Color.Primary" Href="@($"/my-invoices/{i.InvoiceId}")">View</MudButton></td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        @if (_invoices.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="muted pa-4">You have no invoices.</MudText>
+        }
+    </div>
+}
+else if (_invoice is null || _summary is null)
+{
+    @if (_loaded) { <MudText Typo="Typo.body1" Class="muted">That invoice isn't available.</MudText> }
+    else { <MudProgressLinear Indeterminate="true" /> }
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <MudButton Href="/my-invoices" StartIcon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" Class="ml-n2 mb-1">Invoices</MudButton>
+            <MudText Typo="Typo.h4">Invoice #@InvoiceId</MudText>
+        </div>
+        @if (_invoice.Lines.Any(l => l.AppointmentId is not null) && _invoice.Status != InvoiceStatus.Void)
+        {
+            <MudButton Variant="Variant.Outlined" Href="@($"/superbill/{InvoiceId}")">Superbill for insurance</MudButton>
+        }
+    </div>
+    <InvoiceView Invoice="_invoice" Summary="_summary" />
+}
+
+@code {
+    [Parameter] public int? InvoiceId { get; set; }
+
+    private List<InvoiceSummary> _invoices = [];
+    private Invoice? _invoice;
+    private InvoiceSummary? _summary;
+    private bool _loaded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (InvoiceId is { } id)
+        {
+            // Returns nothing for another patient's invoice, or for a draft
+            var loaded = await InvoiceQueries.LoadAsync(Clinic, id);
+            (_invoice, _summary) = loaded is { } l ? (l.Invoice, l.Summary) : (null, null);
+            _loaded = true;
+            return;
+        }
+        var me = (await Clinic.ActorAsync()).PatientId;
+        await using var db = await Clinic.OpenAsync();
+        _invoices = await db.InvoiceSummaries
+            .Where(i => i.PatientId == me && i.Status != InvoiceStatus.Draft)
+            .OrderByDescending(i => i.InvoiceId).ToListAsync();
+    }
+}

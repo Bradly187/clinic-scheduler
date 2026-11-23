@@ -1,0 +1,284 @@
+@inject ClinicDb Clinic
+@inject SchedulingService Scheduling
+@inject CareService Care
+@inject DatabaseCatalog Catalog
+@inject ISnackbar Snackbar
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Hello, @(_actor?.Name.Split(' ')[0])</MudText>
+        <MudText Typo="Typo.body2" Class="lead">Your visits, requests and bills at Houston Arthritis Center.</MudText>
+    </div>
+    <MudButton Href="/request" Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+               StartIcon="@Icons.Material.Filled.Add">Request a visit</MudButton>
+</div>
+
+<RuleAlert Violation="_violation" />
+
+<MudGrid Spacing="3">
+    <MudItem xs="12" lg="7">
+        <div class="panel mb-4">
+            <div class="panel-title">Upcoming visits</div>
+            @if (_upcoming.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted pa-4">You have nothing booked. Request a visit and the front desk will confirm a time.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <tbody>
+                        @foreach (var a in _upcoming)
+                        {
+                            <tr>
+                                <td class="time-cell">@a.StartTime.ToString("ddd MMM d")<br /><span class="muted">@Slots.Range(a.StartTime, a.EndTime)</span></td>
+                                <td>@a.ServiceType.Name<br /><span class="muted">@a.Provider.DisplayName · @a.Room.Location.ShortName</span></td>
+                                <td style="text-align: right">
+                                    @if (_pendingCancel.Contains(a.AppointmentId))
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Text">Cancellation requested</MudChip>
+                                    }
+                                    else
+                                    {
+                                        <MudButton Size="Size.Small" OnClick="@(() => AskCancel(a))">Ask to cancel</MudButton>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </div>
+
+        <div class="panel">
+            <div class="panel-title">Your requests</div>
+            @if (_requests.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="muted pa-4">No requests yet.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <tbody>
+                        @foreach (var r in _requests)
+                        {
+                            <tr>
+                                <td>@r.ServiceType.Name<br /><span class="muted">Asked for @Formats.DayAndTime(r.PreferredStart)</span></td>
+                                <td>
+                                    <StatusChip Text="@r.Status.ToString()" />
+                                    @if (!string.IsNullOrEmpty(r.DecisionNote)) { <br /><span class="muted">@r.DecisionNote</span> }
+                                </td>
+                                <td style="text-align: right">
+                                    @if (r.Status == RequestStatus.Pending)
+                                    {
+                                        <MudButton Size="Size.Small" OnClick="@(() => Withdraw(r))">Withdraw</MudButton>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </div>
+    </MudItem>
+
+    <MudItem xs="12" lg="5">
+        <div class="panel stat mb-4">
+            <div class="value">@Formats.Money(_balance?.OpenBalance ?? 0)</div>
+            <div class="label">
+                Balance due
+                @if ((_balance?.OverdueBalance ?? 0) > 0)
+                {
+                    <span style="color: var(--mud-palette-error)"> · @Formats.Money(_balance!.OverdueBalance) past due</span>
+                }
+            </div>
+            <MudButton Href="/my-invoices" Size="Size.Small" Color="Color.Primary" Class="mt-2 ml-n2">View invoices</MudButton>
+        </div>
+
+        <div class="panel mb-4">
+            <div class="panel-title d-flex align-center">
+                Waitlist
+                <MudSpacer />
+                <MudButton Size="Size.Small" Color="Color.Primary" OnClick="OpenJoin">Join</MudButton>
+            </div>
+            <MudText Typo="Typo.body2" Class="muted px-4 pb-2">If an earlier slot opens for a service you are waiting for, we'll notify you.</MudText>
+            @foreach (var w in _waitlist)
+            {
+                <div class="d-flex align-center px-4 py-2" style="border-top: 1px solid var(--mud-palette-table-lines)">
+                    <div>
+                        <div>@w.ServiceType.Name</div>
+                        <div class="muted" style="font-size: 0.85rem">@Formats.Date(w.EarliestDate) – @Formats.Date(w.LatestDate)@(w.PreferredLocation is null ? "" : $" · {w.PreferredLocation.ShortName}")</div>
+                    </div>
+                    <MudSpacer />
+                    <MudButton Size="Size.Small" OnClick="@(() => Leave(w))">Leave</MudButton>
+                </div>
+            }
+        </div>
+
+        <div class="panel">
+            <div class="panel-title">Recent visits</div>
+            <MudSimpleTable Dense="true" Elevation="0">
+                <tbody>
+                    @foreach (var a in _past)
+                    {
+                        <tr>
+                            <td class="time-cell" style="font-weight: 400">@a.StartTime.ToString("MMM d, yyyy")</td>
+                            <td>@a.ServiceType.Name<br /><span class="muted">@a.Provider.DisplayName</span></td>
+                            <td><StatusChip Text="@a.Status.ToString()" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    </MudItem>
+</MudGrid>
+
+<MudDialog @bind-Visible="_cancelOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">Ask to cancel</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_dialogViolation" />
+        @if (_cancelFor is not null)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">
+                @_cancelFor.ServiceType.Name on @Formats.DayAndTime(_cancelFor.StartTime). The front desk will review your request;
+                the visit stays booked until they do.
+            </MudText>
+        }
+        <MudTextField T="string" @bind-Value="_reason" Label="Reason" Immediate="true" AutoFocus="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _cancelOpen = false)">Keep visit</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" Disabled="@(string.IsNullOrWhiteSpace(_reason))" OnClick="SendCancel">Send request</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_joinOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">Join the waitlist</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_dialogViolation" />
+        <MudGrid Spacing="2">
+            <MudItem xs="12">
+                <IdSelect TItem="ServiceType" Items="_services" Label="Service" IdOf="@(s => s.ServiceTypeId)" TextOf="@(s => s.Name)" @bind-Value="_joinService" />
+            </MudItem>
+            <MudItem xs="12">
+                <IdSelect TItem="Location" Items="_locations" Label="Location (optional)" Clearable="true" IdOf="@(l => l.LocationId)" TextOf="@(l => l.ShortName)" @bind-Value="_joinLocation" />
+            </MudItem>
+            <MudItem xs="6"><MudDatePicker @bind-Date="_joinFrom" Label="Earliest" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="6"><MudDatePicker @bind-Date="_joinTo" Label="Latest" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12"><MudTextField T="string" @bind-Value="_joinNotes" Label="Notes (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _joinOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+                   Disabled="@(_joinService is null || _joinFrom is null || _joinTo is null)" OnClick="Join">Join</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true, CloseOnEscapeKey = true };
+
+    private Actor? _actor;
+    private DateTime _today = DateTime.Today;
+    private List<Appointment> _upcoming = [], _past = [];
+    private List<AppointmentRequest> _requests = [];
+    private List<WaitlistEntry> _waitlist = [];
+    private HashSet<int> _pendingCancel = [];
+    private PatientBalance? _balance;
+    private List<ServiceType> _services = [];
+    private List<Location> _locations = [];
+    private DbRuleViolation? _violation, _dialogViolation;
+
+    private bool _cancelOpen, _joinOpen;
+    private Appointment? _cancelFor;
+    private string _reason = "";
+    private int? _joinService, _joinLocation;
+    private DateTime? _joinFrom, _joinTo;
+    private string? _joinNotes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _actor = await Clinic.ActorAsync();
+        _today = (await Catalog.ClinicTodayAsync()).ToDateTime(TimeOnly.MinValue);
+        await using (var db = await Clinic.OpenAsync())
+        {
+            _services = await db.ServiceTypes.Where(s => s.IsActive).OrderBy(s => s.ServiceTypeId).ToListAsync();
+            _locations = await db.Locations.OrderBy(l => l.LocationId).ToListAsync();
+        }
+        await LoadAsync();
+    }
+
+    // Every query is limited to the signed-in patient; the database refuses writes for anyone else
+    private async Task LoadAsync()
+    {
+        var me = _actor?.PatientId;
+        await using var db = await Clinic.OpenAsync();
+        var visits = db.Appointments.Where(a => a.PatientId == me)
+            .Include(a => a.ServiceType).Include(a => a.Provider).ThenInclude(p => p.Employee).Include(a => a.Room).ThenInclude(r => r.Location);
+        _upcoming = await visits.Where(a => a.Status == AppointmentStatus.Scheduled && a.StartTime >= _today).OrderBy(a => a.StartTime).ToListAsync();
+        _past = await visits.Where(a => a.StartTime < _today && a.Status != AppointmentStatus.Canceled).OrderByDescending(a => a.StartTime).Take(8).ToListAsync();
+        _requests = await db.AppointmentRequests.Include(r => r.ServiceType).Where(r => r.PatientId == me)
+            .OrderByDescending(r => r.SubmittedAt).Take(8).ToListAsync();
+        _waitlist = await db.Waitlist.Include(w => w.ServiceType).Include(w => w.PreferredLocation)
+            .Where(w => w.PatientId == me && w.Status == WaitlistStatus.Waiting).OrderBy(w => w.CreatedAt).ToListAsync();
+        _pendingCancel = (await db.CancellationRequests
+            .Where(c => c.Status == RequestStatus.Pending && c.Appointment.PatientId == me)
+            .Select(c => c.AppointmentId).ToListAsync()).ToHashSet();
+        _balance = await db.PatientBalances.SingleOrDefaultAsync(b => b.PatientId == me);
+    }
+
+    private void AskCancel(Appointment appointment)
+    {
+        _cancelFor = appointment;
+        _reason = "";
+        _dialogViolation = null;
+        _cancelOpen = true;
+    }
+
+    private async Task SendCancel()
+    {
+        if (_cancelFor is null) return;
+        var result = await Scheduling.PatientCancelRequestAsync(_cancelFor.AppointmentId, _reason.Trim());
+        _dialogViolation = result.Violation;
+        if (!result.Succeeded) return;
+        _cancelOpen = false;
+        Snackbar.Add("Request sent. We'll let you know once it's reviewed.", Severity.Success);
+        await LoadAsync();
+    }
+
+    private async Task Withdraw(AppointmentRequest request)
+    {
+        var result = await Scheduling.WithdrawRequestAsync(request.RequestId);
+        _violation = result.Violation;
+        if (result.Succeeded) Snackbar.Add("Request withdrawn", Severity.Info);
+        await LoadAsync();
+    }
+
+    private void OpenJoin()
+    {
+        _joinService = _joinLocation = null;
+        _joinFrom = _today;
+        _joinTo = _today.AddDays(30);
+        _joinNotes = null;
+        _dialogViolation = null;
+        _joinOpen = true;
+    }
+
+    private async Task Join()
+    {
+        if (_actor?.PatientId is not { } me || _joinService is null || _joinFrom is null || _joinTo is null) return;
+        var result = await Care.JoinWaitlistAsync(me, _joinService.Value, _joinLocation, null,
+            DateOnly.FromDateTime(_joinFrom.Value), DateOnly.FromDateTime(_joinTo.Value), _joinNotes);
+        _dialogViolation = result.Violation;
+        if (!result.Succeeded) return;
+        _joinOpen = false;
+        Snackbar.Add("You're on the waitlist", Severity.Success);
+        await LoadAsync();
+    }
+
+    private async Task Leave(WaitlistEntry entry)
+    {
+        var result = await Care.LeaveWaitlistAsync(entry.EntryId);
+        _violation = result.Violation;
+        await LoadAsync();
+    }
+}

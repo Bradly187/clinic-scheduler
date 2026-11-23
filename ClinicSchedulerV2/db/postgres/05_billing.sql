@@ -47,9 +47,9 @@ CREATE TABLE invoice (
     (status IN ('Sent', 'Paid') AND issued_on IS NOT NULL AND due_on IS NOT NULL) OR
     (status = 'Void')),
   CONSTRAINT ck_invoice_due CHECK (due_on IS NULL OR issued_on IS NULL OR due_on >= issued_on),
-  -- Only a void invoice records when and why it was voided
+  -- Only a void invoice records when and why it was voided, and the why is not blank
   CONSTRAINT ck_invoice_void CHECK (
-    (status = 'Void') = (voided_at IS NOT NULL AND void_reason IS NOT NULL))
+    (status = 'Void') = (voided_at IS NOT NULL AND COALESCE(length(trim(void_reason)), 0) > 0))
 );
 CREATE INDEX idx_invoice_patient ON invoice (patient_id, status);
 

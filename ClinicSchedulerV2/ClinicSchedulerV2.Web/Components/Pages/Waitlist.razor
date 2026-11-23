@@ -1,0 +1,202 @@
+@page "/waitlist"
+@attribute [Authorize(Roles = Roles.Staff)]
+@inject ClinicDb Clinic
+@inject CareService Care
+@inject SchedulingService Scheduling
+@inject DatabaseCatalog Catalog
+@inject ISnackbar Snackbar
+
+<PageTitle>Waitlist · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Waitlist</MudText>
+        <MudText Typo="Typo.body2" Class="lead">
+            Patients who want an earlier slot. When a future visit is canceled, the database tells staff at that location
+            and the patients it suits.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenAdd">Add to waitlist</MudButton>
+</div>
+
+<RuleAlert Violation="_violation" />
+
+<div class="panel">
+    <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+        <thead><tr><th>Since</th><th>Patient</th><th>Service</th><th>Window</th><th>Prefers</th><th>Notes</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var w in _entries)
+            {
+                <tr>
+                    <td class="time-cell" style="font-weight: 400">@w.CreatedAt.ToString("MMM d")</td>
+                    <td>@w.Patient.FullName</td>
+                    <td>@w.ServiceType.Name</td>
+                    <td>@Formats.Date(w.EarliestDate) – @Formats.Date(w.LatestDate)</td>
+                    <td>@(string.Join(" · ", new[] { w.PreferredLocation?.ShortName, w.PreferredProvider?.DisplayName }.Where(x => x is not null)))</td>
+                    <td>@w.Notes</td>
+                    <td style="text-align: right; white-space: nowrap">
+                        <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => OpenBook(w))">Book</MudButton>
+                        <MudButton Size="Size.Small" OnClick="@(() => Remove(w))">Remove</MudButton>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+    @if (_entries.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="muted pa-4">Nobody is waiting.</MudText>
+    }
+</div>
+
+<MudDialog @bind-Visible="_bookOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">Book from the waitlist</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_dialogViolation" />
+        @if (_entry is not null)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">
+                @_entry.Patient.FullName, @_entry.ServiceType.Name.ToLowerInvariant(). The database picks the first free @_entry.ServiceType.RequiredRoomType.ToString().ToLowerInvariant() room at the location.
+            </MudText>
+        }
+        <MudGrid Spacing="2">
+            <MudItem xs="12"><IdSelect TItem="Provider" Items="_providers" Label="Provider" IdOf="@(p => p.EmployeeId)" TextOf="@(p => p.DisplayName)" @bind-Value="_provider" /></MudItem>
+            <MudItem xs="12"><IdSelect TItem="Location" Items="_locations" Label="Location" IdOf="@(l => l.LocationId)" TextOf="@(l => l.ShortName)" @bind-Value="_location" /></MudItem>
+            <MudItem xs="6"><MudDatePicker @bind-Date="_date" Label="Date" DateFormat="ddd, MMM d" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="3">
+                <MudSelect T="TimeSpan" @bind-Value="_start" Label="Starts" ToStringFunc="@(t => Slots.Label(t))" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                    @foreach (var t in Slots.StartTimes) { <MudSelectItem T="TimeSpan" Value="t">@Slots.Label(t)</MudSelectItem> }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="3">
+                <MudSelect T="int" @bind-Value="_minutes" Label="Length" ToStringFunc="@(m => Slots.LengthLabel(m))" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                    @foreach (var m in Slots.LengthsInMinutes) { <MudSelectItem T="int" Value="m">@Slots.LengthLabel(m)</MudSelectItem> }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _bookOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" Disabled="@(_provider is null || _location is null || _date is null)" OnClick="Book">Book</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_addOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">Add to waitlist</MudText></TitleContent>
+    <DialogContent>
+        <RuleAlert Violation="_dialogViolation" />
+        <MudGrid Spacing="2">
+            <MudItem xs="12"><IdSelect TItem="Patient" Items="_patients" Label="Patient" IdOf="@(p => p.PatientId)" TextOf="@(p => p.FullName)" @bind-Value="_addPatient" /></MudItem>
+            <MudItem xs="12"><IdSelect TItem="ServiceType" Items="_services" Label="Service" IdOf="@(s => s.ServiceTypeId)" TextOf="@(s => s.Name)" @bind-Value="_addService" /></MudItem>
+            <MudItem xs="6"><IdSelect TItem="Location" Items="_locations" Label="Location" Clearable="true" IdOf="@(l => l.LocationId)" TextOf="@(l => l.ShortName)" @bind-Value="_location" /></MudItem>
+            <MudItem xs="6"><IdSelect TItem="Provider" Items="_providers" Label="Provider" Clearable="true" IdOf="@(p => p.EmployeeId)" TextOf="@(p => p.DisplayName)" @bind-Value="_provider" /></MudItem>
+            <MudItem xs="6"><MudDatePicker @bind-Date="_date" Label="Earliest" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="6"><MudDatePicker @bind-Date="_latest" Label="Latest" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+            <MudItem xs="12"><MudTextField T="string" @bind-Value="_notes" Label="Notes (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _addOpen = false)">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+                   Disabled="@(_addPatient is null || _addService is null || _date is null || _latest is null)" OnClick="Add">Add</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+
+    private List<WaitlistEntry> _entries = [];
+    private List<Patient> _patients = [];
+    private List<Provider> _providers = [];
+    private List<Location> _locations = [];
+    private List<ServiceType> _services = [];
+    private DateTime _today = DateTime.Today;
+    private DbRuleViolation? _violation, _dialogViolation;
+
+    private bool _bookOpen, _addOpen;
+    private WaitlistEntry? _entry;
+    private int? _provider, _location, _addPatient, _addService;
+    private DateTime? _date, _latest;
+    private TimeSpan _start = TimeSpan.FromHours(9);
+    private int _minutes = 30;
+    private string? _notes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _today = (await Catalog.ClinicTodayAsync()).ToDateTime(TimeOnly.MinValue);
+        await using (var db = await Clinic.OpenAsync())
+        {
+            _patients = await db.Patients.Where(p => p.IsActive).OrderBy(p => p.LastName).ThenBy(p => p.FirstName).ToListAsync();
+            _providers = await db.Providers.Include(p => p.Employee).Where(p => p.Employee.IsActive).OrderBy(p => p.Employee.LastName).ToListAsync();
+            _locations = await db.Locations.OrderBy(l => l.LocationId).ToListAsync();
+            _services = await db.ServiceTypes.Where(s => s.IsActive).OrderBy(s => s.ServiceTypeId).ToListAsync();
+        }
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await Clinic.OpenAsync();
+        _entries = await db.Waitlist
+            .Include(w => w.Patient).Include(w => w.ServiceType).Include(w => w.PreferredLocation)
+            .Include(w => w.PreferredProvider!).ThenInclude(p => p.Employee)
+            .Where(w => w.Status == WaitlistStatus.Waiting)
+            .OrderBy(w => w.CreatedAt).ToListAsync();
+    }
+
+    private void OpenBook(WaitlistEntry entry)
+    {
+        _entry = entry;
+        _provider = entry.PreferredProviderId;
+        _location = entry.PreferredLocationId ?? entry.Patient.HomeLocationId;
+        _date = entry.EarliestDate.ToDateTime(TimeOnly.MinValue) < _today ? _today : entry.EarliestDate.ToDateTime(TimeOnly.MinValue);
+        _start = TimeSpan.FromHours(9);
+        _minutes = entry.ServiceType.DefaultDurationMin;
+        _dialogViolation = null;
+        _bookOpen = true;
+    }
+
+    // Two writes, both checked by the database: the booking, then linking the entry to it
+    private async Task Book()
+    {
+        if (_entry is null || _provider is null || _location is null || _date is null) return;
+        var start = _date.Value.Date + _start;
+        var booked = await Scheduling.BookAtLocationAsync(_entry.PatientId, _provider.Value, _entry.ServiceTypeId, _location.Value,
+            start, start.AddMinutes(_minutes), "Booked from the waitlist");
+        _dialogViolation = booked.Violation;
+        if (!booked.Succeeded) return;
+
+        var linked = await Care.MarkWaitlistBookedAsync(_entry.EntryId, booked.Id!.Value);
+        _violation = linked.Violation;
+        _bookOpen = false;
+        Snackbar.Add($"Booked {_entry.Patient.FullName} for {Formats.DayAndTime(start)}", Severity.Success);
+        await LoadAsync();
+    }
+
+    private async Task Remove(WaitlistEntry entry)
+    {
+        var result = await Care.LeaveWaitlistAsync(entry.EntryId);
+        _violation = result.Violation;
+        await LoadAsync();
+    }
+
+    private void OpenAdd()
+    {
+        _addPatient = _addService = _provider = _location = null;
+        _date = _today;
+        _latest = _today.AddDays(30);
+        _notes = null;
+        _dialogViolation = null;
+        _addOpen = true;
+    }
+
+    private async Task Add()
+    {
+        var result = await Care.JoinWaitlistAsync(_addPatient!.Value, _addService!.Value, _location, _provider,
+            DateOnly.FromDateTime(_date!.Value), DateOnly.FromDateTime(_latest!.Value), _notes);
+        _dialogViolation = result.Violation;
+        if (!result.Succeeded) return;
+        _addOpen = false;
+        Snackbar.Add("Added to the waitlist", Severity.Success);
+        await LoadAsync();
+    }
+}

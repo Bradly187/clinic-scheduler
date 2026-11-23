@@ -1,0 +1,233 @@
+@page "/calendar"
+@attribute [Authorize(Roles = Roles.StaffOrProvider)]
+@inject ClinicDb Clinic
+@inject DatabaseCatalog Catalog
+
+<PageTitle>Calendar · ClinicScheduler</PageTitle>
+
+<div class="page-head">
+    <div>
+        <MudText Typo="Typo.h4">Calendar</MudText>
+        <MudText Typo="Typo.body2" Class="lead">@WeekLabel</MudText>
+    </div>
+    <div class="cal-legend">
+        @foreach (var service in _services)
+        {
+            <span style="--swatch: @Formats.ServiceColor(service.ServiceTypeId)">@service.Name</span>
+        }
+    </div>
+</div>
+
+<div class="panel">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="pa-3" Wrap="Wrap.Wrap">
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" OnClick="@(() => Shift(-7))" aria-label="Previous week" />
+        <MudButton Size="Size.Small" OnClick="@(() => SetWeek(_today))">This week</MudButton>
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" OnClick="@(() => Shift(7))" aria-label="Next week" />
+        <MudSpacer />
+        <IdSelect TItem="Location" Items="_locations" Label="Location" Clearable="true" Class="cal-filter"
+                  IdOf="@(l => l.LocationId)" TextOf="@(l => l.ShortName)" Value="_locationId" ValueChanged="SetLocation" />
+        <IdSelect TItem="Provider" Items="_providers" Label="Provider" Clearable="true" Class="cal-filter"
+                  IdOf="@(p => p.EmployeeId)" TextOf="@(p => p.DisplayName)" Value="_providerId" ValueChanged="SetProvider" />
+        <IdSelect TItem="Room" Items="Rooms" Label="Room" Clearable="true" Class="cal-filter"
+                  IdOf="@(r => r.RoomId)" TextOf="@(r => $"{r.RoomName} · {r.Location.ShortName}")" Value="_roomId" ValueChanged="SetRoom" />
+    </MudStack>
+    <MudDivider />
+
+    @if (_appointments is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else
+    {
+        <div class="cal" style="--days: @Days; --slot: @(SlotPx)px">
+            <div class="cal-head"></div>
+            @for (var d = 0; d < Days; d++)
+            {
+                var day = _weekStart.AddDays(d);
+                <div class="cal-head @(day == _today ? "today" : "")">
+                    @day.ToString("ddd MMM d")
+                    <span class="muted" style="font-weight: 400"> · @_byDay[d].Count</span>
+                </div>
+            }
+
+            <div class="cal-times" style="height: @(SlotCount * SlotPx)px">
+                @for (var s = 0; s < SlotCount; s++)
+                {
+                    <div class="cal-time">@(s % 2 == 0 ? DateTime.Today.AddHours(OpenHour).AddMinutes(30 * s).ToString("h tt") : "")</div>
+                }
+            </div>
+            @for (var d = 0; d < Days; d++)
+            {
+                <div class="cal-day" style="height: @(SlotCount * SlotPx)px">
+                    @foreach (var block in _byDay[d])
+                    {
+                        var a = block.Appointment;
+                        <div class="cal-event @a.Status.ToString().ToLowerInvariant()"
+                             style="top: @(block.Top)px; height: @(block.Height)px; left: calc(@(block.Lane) * 100% / @(block.Lanes) + 2px); width: calc(100% / @(block.Lanes) - 4px); background: @Formats.ServiceColor(a.ServiceTypeId)"
+                             title="@($"{TimeRange(a)} · {a.Patient.FullName} · {a.ServiceType.Name} · {a.Provider.DisplayName} · {a.Room.RoomName}")"
+                             @onclick="@(() => Open(a))">
+                            <div class="t">@a.StartTime.ToString("h:mm") @a.Patient.LastName</div>
+                            @if (block.Height >= 2 * SlotPx - 4)
+                            {
+                                <div>@a.ServiceType.Name</div>
+                                <div class="muted">@a.Provider.Employee.LastName · @a.Room.RoomName</div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<MudDialog @bind-Visible="_detailOpen" Options="_dialogOptions">
+    <TitleContent><MudText Typo="Typo.h6">@_selected?.Patient.FullName</MudText></TitleContent>
+    <DialogContent>
+        @if (_selected is { } a)
+        {
+            <MudSimpleTable Dense="true" Elevation="0">
+                <tbody>
+                    <tr><td class="muted">When</td><td>@Formats.DayAndTime(a.StartTime) – @a.EndTime.ToString("h:mm tt")</td></tr>
+                    <tr><td class="muted">Service</td><td>@a.ServiceType.Name</td></tr>
+                    <tr><td class="muted">Provider</td><td>@a.Provider.DisplayName</td></tr>
+                    <tr><td class="muted">Room</td><td>@a.Room.RoomName, @a.Room.Location.ShortName</td></tr>
+                    <tr><td class="muted">Status</td><td><StatusChip Text="@a.Status.ToString()" /></td></tr>
+                    @if (!string.IsNullOrEmpty(a.Notes))
+                    {
+                        <tr><td class="muted">Notes</td><td>@a.Notes</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <AuthorizeView Roles="@Roles.Provider">
+            <MudButton Href="@($"/notes/{_selected?.AppointmentId}")" Color="Color.Primary">Visit notes</MudButton>
+        </AuthorizeView>
+        <AuthorizeView Roles="@Roles.Staff">
+            <MudButton Href="/schedule" Color="Color.Primary">Open schedule</MudButton>
+        </AuthorizeView>
+        <MudButton OnClick="@(() => _detailOpen = false)">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<style>
+    .cal-filter { min-width: 190px; max-width: 240px; }
+</style>
+
+@code {
+    private const int OpenHour = 8, CloseHour = 17, Days = 5, SlotPx = 28;
+    private static readonly int SlotCount = (CloseHour - OpenHour) * 2;
+
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true, CloseOnEscapeKey = true };
+
+    private sealed record Block(Appointment Appointment, int Top, int Height, int Lane, int Lanes);
+
+    private DateTime _today = DateTime.Today, _weekStart;
+    private List<Appointment>? _appointments;
+    private List<Block>[] _byDay = Enumerable.Range(0, Days).Select(_ => new List<Block>()).ToArray();
+    private List<Location> _locations = [];
+    private List<Provider> _providers = [];
+    private List<Room> _rooms = [];
+    private List<ServiceType> _services = [];
+    private int? _locationId, _providerId, _roomId;
+    private int _loadNumber;
+    private bool _detailOpen;
+    private Appointment? _selected;
+
+    private IEnumerable<Room> Rooms => _rooms.Where(r => _locationId is null || r.LocationId == _locationId);
+    private string WeekLabel => $"Week of {_weekStart:MMMM d, yyyy}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _today = (await Catalog.ClinicTodayAsync()).ToDateTime(TimeOnly.MinValue);
+        var actor = await Clinic.ActorAsync();
+        await using (var db = await Clinic.OpenAsync())
+        {
+            _locations = await db.Locations.OrderBy(l => l.LocationId).ToListAsync();
+            _providers = await db.Providers.Include(p => p.Employee).Where(p => p.Employee.IsActive).OrderBy(p => p.Employee.LastName).ToListAsync();
+            _rooms = await db.Rooms.Include(r => r.Location).Where(r => r.IsActive).OrderBy(r => r.RoomId).ToListAsync();
+            _services = await db.ServiceTypes.OrderBy(s => s.ServiceTypeId).ToListAsync();
+        }
+        // A provider starts on their own week
+        if (actor.EmployeeId is { } me && _providers.Any(p => p.EmployeeId == me)) _providerId = me;
+        await SetWeek(_today);
+    }
+
+    private Task SetWeek(DateTime day)
+    {
+        var offset = ((int)day.DayOfWeek + 6) % 7; // Monday = 0
+        _weekStart = day.Date.AddDays(-offset);
+        return LoadAsync();
+    }
+
+    private Task Shift(int days) => SetWeek(_weekStart.AddDays(days));
+    private Task SetLocation(int? id) { _locationId = id; if (_roomId is { } r && !Rooms.Any(x => x.RoomId == r)) _roomId = null; return LoadAsync(); }
+    private Task SetProvider(int? id) { _providerId = id; return LoadAsync(); }
+    private Task SetRoom(int? id) { _roomId = id; return LoadAsync(); }
+
+    private async Task LoadAsync()
+    {
+        var load = ++_loadNumber;
+        var start = _weekStart;
+        var end = _weekStart.AddDays(Days);
+        int? location = _locationId, provider = _providerId, room = _roomId;
+
+        await using var db = await Clinic.OpenAsync();
+        var appointments = await db.Appointments
+            .Include(a => a.Patient).Include(a => a.ServiceType)
+            .Include(a => a.Provider).ThenInclude(p => p.Employee)
+            .Include(a => a.Room).ThenInclude(r => r.Location)
+            .Where(a => a.StartTime >= start && a.StartTime < end && a.Status != AppointmentStatus.Canceled)
+            .Where(a => location == null || a.Room.LocationId == location)
+            .Where(a => provider == null || a.ProviderId == provider)
+            .Where(a => room == null || a.RoomId == room)
+            .OrderBy(a => a.StartTime).ThenBy(a => a.RoomId)
+            .ToListAsync();
+        if (load != _loadNumber) return;
+
+        _appointments = appointments;
+        _byDay = Enumerable.Range(0, Days).Select(d => Layout(appointments.Where(a => a.StartTime.Date == start.AddDays(d)).ToList())).ToArray();
+    }
+
+    // Places overlapping visits side by side: each visit takes the first free lane, and every
+    // visit in a cluster of overlaps is drawn with that cluster's lane count.
+    private static List<Block> Layout(List<Appointment> day)
+    {
+        var blocks = new List<Block>();
+        var cluster = new List<(Appointment A, int Lane)>();
+        var laneEnds = new List<DateTime>();
+        var clusterEnd = DateTime.MinValue;
+
+        void Flush()
+        {
+            foreach (var (a, lane) in cluster)
+            {
+                var top = (int)((a.StartTime - a.StartTime.Date.AddHours(OpenHour)).TotalMinutes / 30 * SlotPx);
+                var height = Math.Max(SlotPx - 2, (int)((a.EndTime - a.StartTime).TotalMinutes / 30 * SlotPx) - 2);
+                blocks.Add(new Block(a, Math.Max(0, top), height, lane, laneEnds.Count));
+            }
+            cluster.Clear();
+            laneEnds.Clear();
+        }
+
+        foreach (var a in day)
+        {
+            if (cluster.Count > 0 && a.StartTime >= clusterEnd) Flush();
+            var lane = laneEnds.FindIndex(e => e <= a.StartTime);
+            if (lane < 0) { lane = laneEnds.Count; laneEnds.Add(a.EndTime); } else laneEnds[lane] = a.EndTime;
+            cluster.Add((a, lane));
+            clusterEnd = cluster.Count == 1 ? a.EndTime : (a.EndTime > clusterEnd ? a.EndTime : clusterEnd);
+        }
+        Flush();
+        return blocks;
+    }
+
+    private static string TimeRange(Appointment a) => Web.Slots.Range(a.StartTime, a.EndTime);
+
+    private void Open(Appointment appointment)
+    {
+        _selected = appointment;
+        _detailOpen = true;
+    }
+}
